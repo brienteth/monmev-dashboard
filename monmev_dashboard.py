@@ -22,8 +22,9 @@ st.set_page_config(
 )
 
 # ==================== CONFIG ====================
-API_URL = "http://localhost:8000"
-API_KEY = "brick3_unlimited_master"
+import os
+API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_KEY = os.getenv("API_KEY", "brick3_unlimited_master")
 
 # ==================== SESSION STATE ====================
 if "monitoring" not in st.session_state:
