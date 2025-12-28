@@ -1,0 +1,17 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Default prod settings (can be overridden by envs in Render)
+ENV DEMO_MODE=false \
+    AUTH_ENABLED=false \
+    MONAD_RPC=https://rpc.monad.xyz \
+    API_HOST=0.0.0.0 \
+    API_PORT=8000
+
+EXPOSE 8000
+CMD ["uvicorn", "monmev_api:app", "--host", "0.0.0.0", "--port", "8000"]
