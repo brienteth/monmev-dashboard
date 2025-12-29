@@ -98,7 +98,77 @@ defaults = {
     "refresh_interval": 5,
     "rpc_latency": 0,
     "api_latency": 0,
-    "bot_stats": {"sandwich": {"executions": 0, "profits": 0}, "arbitrage": {"executions": 0, "profits": 0}}
+    "bot_stats": {"sandwich": {"executions": 0, "profits": 0}, "arbitrage": {"executions": 0, "profits": 0}},
+    # API Key Management
+    "user_api_key": "",
+    "api_key_tier": "free",
+    "api_key_valid": False,
+    "api_calls_today": 0,
+    "api_calls_limit": 100,  # Free tier default
+    "demo_api_keys": {}  # Store demo keys for offline mode
+}
+
+# API Key Tier Configurations
+API_TIERS = {
+    "free": {
+        "name": "Free Trial",
+        "price": 0,
+        "price_label": "$0/mo",
+        "duration": "7 days",
+        "rate_limit": 100,
+        "features": [
+            "📊 Basic Dashboard Access",
+            "🔍 100 API calls/day",
+            "📈 Real-time monitoring",
+            "🧪 Simulator (Limited)",
+            "❌ No bot execution",
+            "❌ No revenue sharing"
+        ],
+        "badge_color": "#6c757d",
+        "icon": "🆓"
+    },
+    "pro": {
+        "name": "Pro",
+        "price": 49,
+        "price_label": "$49/mo",
+        "duration": "Monthly",
+        "rate_limit": 10000,
+        "features": [
+            "📊 Full Dashboard Access",
+            "🔍 10,000 API calls/day",
+            "📈 Real-time monitoring",
+            "🧪 Full Simulator Access",
+            "🤖 Bot Execution (Sandwich)",
+            "⚡ Brick3 Turbo™ Access",
+            "💰 70% Revenue Share",
+            "📧 Email Support"
+        ],
+        "badge_color": "#667eea",
+        "icon": "⚡"
+    },
+    "enterprise": {
+        "name": "Enterprise",
+        "price": 199,
+        "price_label": "$199/mo",
+        "duration": "Monthly",
+        "rate_limit": 100000,
+        "features": [
+            "📊 Full Dashboard Access",
+            "🔍 Unlimited API calls",
+            "📈 Real-time monitoring",
+            "🧪 Full Simulator Access",
+            "🤖 All Bot Types (Sandwich + Arbitrage)",
+            "⚡ Brick3 Turbo™ Priority",
+            "💾 Brick3 Flash™ Access",
+            "🌊 Brick3 Flow™ Mempool",
+            "🔗 Brick3 Link™ Private RPC",
+            "💰 80% Revenue Share",
+            "📞 Priority Support",
+            "🎯 Custom Strategies"
+        ],
+        "badge_color": "#ffd700",
+        "icon": "👑"
+    }
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -261,12 +331,31 @@ def parse_transaction(tx, block_num):
     except:
         return None
 
+# ==================== API KEY HELPER ====================
+def get_api_key():
+    """Get the current user's API key or fallback"""
+    user_key = st.session_state.get("user_api_key", "")
+    if user_key:
+        return user_key
+    return "brick3_demo_key"  # Demo fallback
+
+def check_tier_access(required_tier):
+    """Check if user has required tier access"""
+    tier_hierarchy = {"free": 0, "pro": 1, "enterprise": 2}
+    user_tier = st.session_state.get("api_key_tier", "free")
+    return tier_hierarchy.get(user_tier, 0) >= tier_hierarchy.get(required_tier, 0)
+
+def increment_api_calls():
+    """Increment API call counter"""
+    st.session_state.api_calls_today = st.session_state.get("api_calls_today", 0) + 1
+
 # ==================== BOT MANAGEMENT ====================
 def get_bot_status():
     """Get bot status from API"""
     try:
+        increment_api_calls()
         response = requests.get(f"{API_URL}/api/v1/bots/status", 
-                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               headers={"X-API-Key": get_api_key()},
                                timeout=5)
         if response.status_code == 200:
             return response.json().get("bots", {}).get("bots", {})
@@ -277,8 +366,9 @@ def get_bot_status():
 def start_bot(bot_type):
     """Start a bot"""
     try:
+        increment_api_calls()
         response = requests.post(f"{API_URL}/api/v1/bots/start/{bot_type}",
-                                headers={"X-API-Key": "brick3_unlimited_master"},
+                                headers={"X-API-Key": get_api_key()},
                                 timeout=5)
         return response.status_code == 200
     except:
@@ -287,8 +377,9 @@ def start_bot(bot_type):
 def stop_bot(bot_type):
     """Stop a bot"""
     try:
+        increment_api_calls()
         response = requests.post(f"{API_URL}/api/v1/bots/stop/{bot_type}",
-                                headers={"X-API-Key": "brick3_unlimited_master"},
+                                headers={"X-API-Key": get_api_key()},
                                 timeout=5)
         return response.status_code == 200
     except:
@@ -297,9 +388,10 @@ def stop_bot(bot_type):
 def simulate_sandwich(victim_value):
     """Simulate sandwich attack"""
     try:
+        increment_api_calls()
         response = requests.get(f"{API_URL}/api/v1/simulate/sandwich",
                                params={"victim_value_mon": victim_value},
-                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               headers={"X-API-Key": get_api_key()},
                                timeout=5)
         if response.status_code == 200:
             return response.json()
@@ -310,9 +402,10 @@ def simulate_sandwich(victim_value):
 def simulate_arbitrage(amount, hops):
     """Simulate arbitrage"""
     try:
+        increment_api_calls()
         response = requests.get(f"{API_URL}/api/v1/simulate/arbitrage",
                                params={"amount_in_mon": amount, "hops": hops},
-                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               headers={"X-API-Key": get_api_key()},
                                timeout=5)
         if response.status_code == 200:
             return response.json()
@@ -323,8 +416,9 @@ def simulate_arbitrage(amount, hops):
 def get_revenue_summary():
     """Get revenue summary"""
     try:
+        increment_api_calls()
         response = requests.get(f"{API_URL}/api/v1/revenue/summary",
-                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               headers={"X-API-Key": get_api_key()},
                                timeout=5)
         if response.status_code == 200:
             return response.json()
@@ -349,6 +443,35 @@ def show_sidebar():
             st.session_state.page = "revenue"
         if st.button("⚡ Fastlane", use_container_width=True):
             st.session_state.page = "fastlane"
+        if st.button("🔑 API Keys", use_container_width=True):
+            st.session_state.page = "api_keys"
+        
+        st.markdown("---")
+        
+        # API Key Status Badge
+        st.markdown("### 🔐 API Status")
+        current_tier = st.session_state.get("api_key_tier", "free")
+        tier_info = API_TIERS.get(current_tier, API_TIERS["free"])
+        api_key = st.session_state.get("user_api_key", "")
+        
+        st.markdown(f"""
+        <div style="background:#1e1e2e;border:1px solid {tier_info['badge_color']};border-radius:10px;padding:12px;margin:5px 0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span>{tier_info['icon']} {tier_info['name']}</span>
+                <span style="color:{'#4caf50' if api_key else '#f44336'};font-size:0.8em;">{'Active' if api_key else 'No Key'}</span>
+            </div>
+            <div style="font-size:0.75em;color:#888;margin-top:5px;">
+                {st.session_state.api_calls_today}/{tier_info['rate_limit']} calls today
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if not api_key:
+            st.markdown("""
+            <a href="https://www.brick3.fun/get-api-key" target="_blank" style="display:block;background:linear-gradient(90deg, #667eea 0%, #764ba2 100%);color:white;padding:10px;border-radius:8px;text-align:center;text-decoration:none;margin-top:10px;font-size:0.9em;">
+                🔑 Get API Key
+            </a>
+            """, unsafe_allow_html=True)
         
         st.markdown("---")
         st.markdown("### 📈 Quick Stats")
@@ -675,6 +798,19 @@ def show_bot_management():
     st.markdown('<h1 class="main-header">🤖 Brick3 Bot Management</h1>', unsafe_allow_html=True)
     st.markdown('<p style="text-align:center;color:#888;">Control, configure and monitor your Brick3 MEV bots</p>', unsafe_allow_html=True)
     
+    # Check tier access
+    user_tier = st.session_state.get("api_key_tier", "free")
+    has_sandwich_access = check_tier_access("pro")
+    has_arbitrage_access = check_tier_access("enterprise")
+    
+    # Tier warning for free users
+    if user_tier == "free":
+        st.warning("""
+        ⚠️ **Free Tier Limitations** - Bot execution requires a Pro or Enterprise API key.
+        
+        🔑 [Get your API key at brick3.fun/get-api-key](https://www.brick3.fun/get-api-key)
+        """)
+    
     # Check API status but don't block - use demo mode if offline
     api_online = measure_api_latency()
     
@@ -684,6 +820,17 @@ def show_bot_management():
             "sandwich": {"status": "stopped", "config": {"min_profit_usd": 50.0, "max_gas_gwei": 100.0, "slippage_percent": 0.5, "max_position_size_mon": 1000.0}},
             "arbitrage": {"status": "stopped", "config": {"min_profit_usd": 20.0, "max_gas_gwei": 100.0, "slippage_percent": 0.5, "max_position_size_mon": 1000.0}}
         }
+    
+    # Display current tier info
+    tier_info = API_TIERS.get(user_tier, API_TIERS["free"])
+    st.markdown(f"""
+    <div style="background:#1e1e2e;border:1px solid {tier_info['badge_color']};border-radius:10px;padding:12px;margin-bottom:15px;">
+        <span>{tier_info['icon']} <b>Your Plan:</b> {tier_info['name']}</span>
+        <span style="float:right;color:#888;">
+            {'🥪 Sandwich ✅ | 🔄 Arbitrage ✅' if has_arbitrage_access else '🥪 Sandwich ✅ | 🔄 Arbitrage ❌' if has_sandwich_access else '🥪 Sandwich ❌ | 🔄 Arbitrage ❌'}
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
     
     if api_online:
         st.success(f"✅ Brick3 API Connected - Latency: {st.session_state.api_latency}ms")
@@ -699,11 +846,14 @@ def show_bot_management():
     gc1, gc2, gc3, gc4 = st.columns(4)
     
     with gc1:
-        if st.button("▶️ Start All Bots", type="primary", use_container_width=True):
-            if use_demo:
+        if st.button("▶️ Start All Bots", type="primary", use_container_width=True, disabled=not has_sandwich_access):
+            if not has_sandwich_access:
+                st.error("🔒 Pro plan required to start bots")
+            elif use_demo:
                 st.session_state.demo_bots["sandwich"]["status"] = "running"
-                st.session_state.demo_bots["arbitrage"]["status"] = "running"
-                st.success("✅ All bots started (Demo)")
+                if has_arbitrage_access:
+                    st.session_state.demo_bots["arbitrage"]["status"] = "running"
+                st.success("✅ Bots started (Demo)")
             else:
                 start_bot("sandwich")
                 start_bot("arbitrage")
@@ -718,8 +868,9 @@ def show_bot_management():
                 st.success("⏹️ All bots stopped (Demo)")
             else:
                 try:
+                    increment_api_calls()
                     requests.post(f"{API_URL}/api/v1/bots/stop-all",
-                                 headers={"X-API-Key": "brick3_unlimited_master"},
+                                 headers={"X-API-Key": get_api_key()},
                                  timeout=5)
                     st.success("⏹️ All bots stopped!")
                 except:
@@ -850,6 +1001,7 @@ def show_bot_management():
                     st.rerun()
                 else:
                     try:
+                        increment_api_calls()
                         response = requests.post(
                             f"{API_URL}/api/v1/bots/config/sandwich",
                             json={
@@ -858,7 +1010,7 @@ def show_bot_management():
                                 "slippage_percent": sand_slippage,
                                 "max_position_size_mon": sand_max_pos
                             },
-                            headers={"X-API-Key": "brick3_unlimited_master"},
+                            headers={"X-API-Key": get_api_key()},
                             timeout=5
                         )
                         st.success("✅ Configuration saved!")
@@ -948,6 +1100,7 @@ def show_bot_management():
                     st.rerun()
                 else:
                     try:
+                        increment_api_calls()
                         response = requests.post(
                             f"{API_URL}/api/v1/bots/config/arbitrage",
                             json={
@@ -956,7 +1109,7 @@ def show_bot_management():
                                 "slippage_percent": arb_slippage,
                                 "max_position_size_mon": arb_max_pos
                             },
-                            headers={"X-API-Key": "brick3_unlimited_master"},
+                            headers={"X-API-Key": get_api_key()},
                             timeout=5
                         )
                         st.success("✅ Configuration saved!")
@@ -1099,6 +1252,279 @@ def show_simulator():
                 else:
                     st.error("Simulation failed. Check API connection.")
 
+def show_api_keys():
+    """API Key Management Page - Get keys from brick3.fun"""
+    st.markdown('<h1 class="main-header">🔑 Brick3 API Keys</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Get your API key to unlock full MEV capabilities</p>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Current API Key Status
+    st.markdown("### 📊 Your Current Plan")
+    
+    current_tier = st.session_state.get("api_key_tier", "free")
+    current_key = st.session_state.get("user_api_key", "")
+    tier_info = API_TIERS.get(current_tier, API_TIERS["free"])
+    
+    # Status Card
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);border:2px solid {tier_info['badge_color']};border-radius:16px;padding:25px;margin:15px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <span style="font-size:2em;">{tier_info['icon']}</span>
+                <span style="font-size:1.5em;font-weight:bold;color:{tier_info['badge_color']};margin-left:10px;">{tier_info['name']}</span>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:1.8em;font-weight:bold;color:#fff;">{tier_info['price_label']}</div>
+                <div style="color:#888;font-size:0.9em;">{tier_info['duration']}</div>
+            </div>
+        </div>
+        <hr style="border-color:#3d3d5c;margin:15px 0;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+            <div>
+                <span style="color:#888;">API Calls Today:</span>
+                <span style="color:#4ecdc4;font-weight:bold;margin-left:10px;">{st.session_state.api_calls_today} / {tier_info['rate_limit']}</span>
+            </div>
+            <div>
+                <span style="color:#888;">Status:</span>
+                <span style="color:#4caf50;font-weight:bold;margin-left:10px;">{'✅ Active' if current_key else '⏳ No Key'}</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # API Key Input
+    st.markdown("### 🔐 Enter Your API Key")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        api_key_input = st.text_input(
+            "API Key",
+            value=current_key,
+            type="password",
+            placeholder="brick3_xxxxxxxxxxxxxxxx",
+            help="Get your API key from brick3.fun/get-api-key"
+        )
+    with col2:
+        if st.button("✅ Validate Key", type="primary", use_container_width=True):
+            if api_key_input:
+                # Demo validation logic
+                if api_key_input.startswith("brick3_"):
+                    st.session_state.user_api_key = api_key_input
+                    st.session_state.api_key_valid = True
+                    
+                    # Determine tier based on key prefix
+                    if "enterprise" in api_key_input.lower() or "ent_" in api_key_input:
+                        st.session_state.api_key_tier = "enterprise"
+                        st.session_state.api_calls_limit = 100000
+                    elif "pro_" in api_key_input or "premium" in api_key_input.lower():
+                        st.session_state.api_key_tier = "pro"
+                        st.session_state.api_calls_limit = 10000
+                    else:
+                        st.session_state.api_key_tier = "free"
+                        st.session_state.api_calls_limit = 100
+                    
+                    st.success(f"✅ API Key validated! Tier: {st.session_state.api_key_tier.upper()}")
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid API key format. Keys should start with 'brick3_'")
+            else:
+                st.warning("⚠️ Please enter an API key")
+    
+    # Get API Key CTA
+    st.markdown("### 🚀 Get Your API Key")
+    
+    st.markdown("""
+    <div style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:16px;padding:30px;margin:20px 0;text-align:center;">
+        <h2 style="color:white;margin-bottom:10px;">🔑 Need an API Key?</h2>
+        <p style="color:#ddd;margin-bottom:20px;">Visit brick3.fun to create your account and get your API key</p>
+        <a href="https://www.brick3.fun/get-api-key" target="_blank" style="display:inline-block;background:#fff;color:#667eea;padding:15px 40px;border-radius:30px;text-decoration:none;font-weight:bold;font-size:1.1em;">
+            🔗 Get API Key →
+        </a>
+        <p style="color:#bbb;font-size:0.9em;margin-top:15px;">Start with 7-day free trial • No credit card required</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Pricing Plans
+    st.markdown("### 💎 API Plans & Pricing")
+    
+    plan_cols = st.columns(3)
+    
+    for idx, (tier_key, tier) in enumerate(API_TIERS.items()):
+        with plan_cols[idx]:
+            is_current = tier_key == current_tier
+            border_style = f"3px solid {tier['badge_color']}" if is_current else f"1px solid #3d3d5c"
+            
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);border:{border_style};border-radius:16px;padding:20px;height:100%;position:relative;">
+                {'<div style="position:absolute;top:-10px;right:15px;background:#4caf50;color:white;padding:4px 12px;border-radius:20px;font-size:0.7em;">CURRENT</div>' if is_current else ''}
+                <div style="text-align:center;margin-bottom:15px;">
+                    <span style="font-size:2.5em;">{tier['icon']}</span>
+                    <h3 style="color:{tier['badge_color']};margin:10px 0;">{tier['name']}</h3>
+                    <div style="font-size:2em;font-weight:bold;color:white;">{tier['price_label']}</div>
+                    <div style="color:#888;font-size:0.85em;">{tier['duration']}</div>
+                </div>
+                <hr style="border-color:#3d3d5c;margin:15px 0;">
+                <div style="font-size:0.9em;">
+                    {''.join([f'<div style="margin:8px 0;color:#ccc;">{feat}</div>' for feat in tier['features']])}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Button for each plan
+            if tier_key == "free":
+                if st.button("🎁 Start Free Trial", key=f"btn_{tier_key}", use_container_width=True):
+                    st.markdown(f'<meta http-equiv="refresh" content="0;url=https://www.brick3.fun/get-api-key">', unsafe_allow_html=True)
+            elif tier_key == "pro":
+                if st.button("⚡ Get Pro", key=f"btn_{tier_key}", use_container_width=True, type="primary"):
+                    st.markdown('[→ Get Pro Key](https://www.brick3.fun/get-api-key?plan=pro)')
+            else:
+                if st.button("👑 Get Enterprise", key=f"btn_{tier_key}", use_container_width=True):
+                    st.markdown('[→ Contact Sales](https://www.brick3.fun/get-api-key?plan=enterprise)')
+    
+    st.divider()
+    
+    # Feature Comparison
+    st.markdown("### 📋 Feature Comparison")
+    
+    comparison_data = {
+        "Feature": [
+            "API Calls/Day",
+            "Dashboard Access",
+            "Transaction Monitoring",
+            "MEV Simulator",
+            "Sandwich Bot",
+            "Arbitrage Bot",
+            "Brick3 Turbo™",
+            "Brick3 Flash™",
+            "Brick3 Flow™",
+            "Brick3 Link™",
+            "Revenue Share",
+            "Support"
+        ],
+        "🆓 Free": ["100", "Basic", "✅", "Limited", "❌", "❌", "❌", "❌", "❌", "❌", "0%", "Community"],
+        "⚡ Pro": ["10,000", "Full", "✅", "✅", "✅", "❌", "✅", "❌", "❌", "❌", "70%", "Email"],
+        "👑 Enterprise": ["Unlimited", "Full", "✅", "✅", "✅", "✅", "✅ Priority", "✅", "✅", "✅", "80%", "Priority"]
+    }
+    
+    st.table(comparison_data)
+    
+    st.divider()
+    
+    # API Usage & Endpoints
+    st.markdown("### 🔌 API Endpoints")
+    
+    with st.expander("📚 Available Endpoints", expanded=False):
+        st.markdown("""
+        **Base URL:** `https://api.brick3.fun/v1`
+        
+        **Authentication:** Include your API key in the header:
+        ```
+        X-API-Key: brick3_your_api_key_here
+        ```
+        
+        **Endpoints:**
+        | Endpoint | Method | Description | Tier Required |
+        |----------|--------|-------------|---------------|
+        | `/health` | GET | API health check | All |
+        | `/bots/status` | GET | Get all bot statuses | Pro+ |
+        | `/bots/start/{type}` | POST | Start a bot | Pro+ |
+        | `/bots/stop/{type}` | POST | Stop a bot | Pro+ |
+        | `/simulate/sandwich` | GET | Sandwich simulation | All |
+        | `/simulate/arbitrage` | GET | Arbitrage simulation | Pro+ |
+        | `/revenue/summary` | GET | Revenue statistics | Pro+ |
+        | `/mempool/stream` | WS | Mempool streaming | Enterprise |
+        | `/fastlane/submit` | POST | Submit protected TX | Enterprise |
+        """)
+    
+    with st.expander("💻 Code Examples", expanded=False):
+        st.markdown("**Python Example:**")
+        st.code('''
+import requests
+
+API_KEY = "brick3_your_api_key_here"
+BASE_URL = "https://api.brick3.fun/v1"
+
+headers = {"X-API-Key": API_KEY}
+
+# Get bot status
+response = requests.get(f"{BASE_URL}/bots/status", headers=headers)
+print(response.json())
+
+# Start sandwich bot
+response = requests.post(f"{BASE_URL}/bots/start/sandwich", headers=headers)
+print(response.json())
+
+# Simulate sandwich attack
+response = requests.get(
+    f"{BASE_URL}/simulate/sandwich",
+    params={"victim_value_mon": 100},
+    headers=headers
+)
+print(response.json())
+        ''', language="python")
+        
+        st.markdown("**cURL Example:**")
+        st.code('''
+# Health check
+curl -H "X-API-Key: brick3_your_key" https://api.brick3.fun/v1/health
+
+# Start bot
+curl -X POST -H "X-API-Key: brick3_your_key" \\
+     https://api.brick3.fun/v1/bots/start/sandwich
+
+# Simulate
+curl -H "X-API-Key: brick3_your_key" \\
+     "https://api.brick3.fun/v1/simulate/sandwich?victim_value_mon=100"
+        ''', language="bash")
+    
+    st.divider()
+    
+    # FAQ
+    st.markdown("### ❓ FAQ")
+    
+    with st.expander("How do I get an API key?"):
+        st.markdown("""
+        1. Visit [brick3.fun/get-api-key](https://www.brick3.fun/get-api-key)
+        2. Create an account with your email
+        3. Start your 7-day free trial
+        4. Copy your API key and paste it above
+        """)
+    
+    with st.expander("What's included in the free trial?"):
+        st.markdown("""
+        The free trial includes:
+        - 100 API calls per day
+        - Basic dashboard access
+        - Real-time transaction monitoring
+        - Limited MEV simulation
+        
+        No credit card required! Upgrade anytime to unlock more features.
+        """)
+    
+    with st.expander("How does revenue sharing work?"):
+        st.markdown("""
+        When your bots execute profitable MEV strategies:
+        
+        - **Pro (70% share):** You keep 70% of profits, Brick3 keeps 30%
+        - **Enterprise (80% share):** You keep 80% of profits, Brick3 keeps 20%
+        
+        Revenue is distributed automatically to your wallet.
+        """)
+    
+    with st.expander("What are Brick3 Technologies?"):
+        st.markdown("""
+        **🚀 Brick3 Turbo™** - Ultra-fast transaction relay for priority execution
+        
+        **💾 Brick3 Flash™** - Instant data caching for microsecond response times
+        
+        **🌊 Brick3 Flow™** - Advanced mempool streaming for real-time opportunity detection
+        
+        **🔗 Brick3 Link™** - Private RPC connection with dedicated infrastructure
+        """)
+
 def show_revenue():
     """Revenue tracking page"""
     st.markdown('<h1 class="main-header">💰 Revenue Dashboard</h1>', unsafe_allow_html=True)
@@ -1155,9 +1581,10 @@ def show_revenue():
     
     if st.button("📊 Calculate APY"):
         try:
+            increment_api_calls()
             response = requests.get(f"{API_URL}/api/v1/revenue/estimate-apy",
                                    params={"daily_mev_volume_usd": daily_volume, "tvl_usd": tvl},
-                                   headers={"X-API-Key": "brick3_unlimited_master"},
+                                   headers={"X-API-Key": get_api_key()},
                                    timeout=5)
             if response.status_code == 200:
                 est = response.json().get("estimate", {})
@@ -1280,6 +1707,8 @@ def main():
         show_revenue()
     elif st.session_state.page == "fastlane":
         show_fastlane()
+    elif st.session_state.page == "api_keys":
+        show_api_keys()
     else:
         show_dashboard()
 
