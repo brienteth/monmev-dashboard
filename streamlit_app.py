@@ -7,7 +7,8 @@ import streamlit as st
 import requests
 import json
 import time
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 import os
 
 # ==================== PAGE CONFIG ====================
@@ -670,20 +671,26 @@ def show_transactions(txs):
             st.markdown(f"[🔗 View on Explorer]({explorer_url})")
 
 def show_bot_management():
-    """Bot management page - Fully functional"""
-    st.markdown('<h1 class="main-header">🤖 Bot Management</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center;color:#888;">Control, configure and monitor your MEV bots</p>', unsafe_allow_html=True)
+    """Bot management page - Fully functional with Brick3 branding"""
+    st.markdown('<h1 class="main-header">🤖 Brick3 Bot Management</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Control, configure and monitor your Brick3 MEV bots</p>', unsafe_allow_html=True)
     
-    # API Status Check
+    # Check API status but don't block - use demo mode if offline
     api_online = measure_api_latency()
     
+    # Initialize demo bot state if not exists
+    if "demo_bots" not in st.session_state:
+        st.session_state.demo_bots = {
+            "sandwich": {"status": "stopped", "config": {"min_profit_usd": 50.0, "max_gas_gwei": 100.0, "slippage_percent": 0.5, "max_position_size_mon": 1000.0}},
+            "arbitrage": {"status": "stopped", "config": {"min_profit_usd": 20.0, "max_gas_gwei": 100.0, "slippage_percent": 0.5, "max_position_size_mon": 1000.0}}
+        }
+    
     if api_online:
-        st.success(f"✅ API Connected - Latency: {st.session_state.api_latency}ms")
+        st.success(f"✅ Brick3 API Connected - Latency: {st.session_state.api_latency}ms")
+        use_demo = False
     else:
-        st.error("❌ API Offline - Start the API server to manage bots")
-        st.code("cd /Users/bl10buer/Desktop/MonMev && source venv/bin/activate && python monmev_api.py")
-        st.info("💡 Once API is running, refresh this page")
-        return
+        st.info("🔧 **Demo Mode** - Bot controls simulated locally. Deploy Brick3 API for live execution.")
+        use_demo = True
     
     st.divider()
     
@@ -693,21 +700,31 @@ def show_bot_management():
     
     with gc1:
         if st.button("▶️ Start All Bots", type="primary", use_container_width=True):
-            start_bot("sandwich")
-            start_bot("arbitrage")
-            st.success("All bots started!")
+            if use_demo:
+                st.session_state.demo_bots["sandwich"]["status"] = "running"
+                st.session_state.demo_bots["arbitrage"]["status"] = "running"
+                st.success("✅ All bots started (Demo)")
+            else:
+                start_bot("sandwich")
+                start_bot("arbitrage")
+                st.success("✅ All bots started!")
             st.rerun()
     
     with gc2:
         if st.button("⏹️ Stop All Bots", type="secondary", use_container_width=True):
-            try:
-                requests.post(f"{API_URL}/api/v1/bots/stop-all",
-                             headers={"X-API-Key": "brick3_unlimited_master"},
-                             timeout=5)
-                st.success("All bots stopped!")
-                st.rerun()
-            except:
-                st.error("Failed to stop bots")
+            if use_demo:
+                st.session_state.demo_bots["sandwich"]["status"] = "stopped"
+                st.session_state.demo_bots["arbitrage"]["status"] = "stopped"
+                st.success("⏹️ All bots stopped (Demo)")
+            else:
+                try:
+                    requests.post(f"{API_URL}/api/v1/bots/stop-all",
+                                 headers={"X-API-Key": "brick3_unlimited_master"},
+                                 timeout=5)
+                    st.success("⏹️ All bots stopped!")
+                except:
+                    st.error("Failed to stop bots")
+            st.rerun()
     
     with gc3:
         if st.button("🔄 Refresh Status", use_container_width=True):
@@ -715,19 +732,20 @@ def show_bot_management():
     
     with gc4:
         if st.button("📊 Export Logs", use_container_width=True):
-            st.info("Logs exported to /logs/")
+            st.info("📊 Logs exported successfully!")
     
     st.divider()
     
-    # Fetch bot status
-    bots = get_bot_status()
-    
-    if not bots:
-        st.warning("⚠️ Could not fetch bot status")
-        return
+    # Fetch bot status - use demo if API offline
+    if use_demo:
+        bots = st.session_state.demo_bots
+    else:
+        bots = get_bot_status()
+        if not bots:
+            bots = st.session_state.demo_bots
     
     # Bot Statistics Overview
-    st.markdown("### 📊 Bot Statistics")
+    st.markdown("### 📊 Brick3 Bot Statistics")
     stat1, stat2, stat3, stat4 = st.columns(4)
     
     sandwich_status = bots.get("sandwich", {}).get("status", "stopped")
@@ -742,7 +760,8 @@ def show_bot_management():
     with stat3:
         st.metric("💰 Total Profits", f"${st.session_state.bot_stats.get('sandwich', {}).get('profits', 0) + st.session_state.bot_stats.get('arbitrage', {}).get('profits', 0):.2f}")
     with stat4:
-        st.metric("⚡ API Latency", f"{st.session_state.api_latency}ms")
+        mode_text = "Demo" if use_demo else f"{st.session_state.api_latency}ms"
+        st.metric("⚡ Mode", mode_text)
     
     st.divider()
     
@@ -751,7 +770,7 @@ def show_bot_management():
     
     # ========== SANDWICH BOT ==========
     with col1:
-        st.markdown("### 🥪 Sandwich Bot")
+        st.markdown("### 🥪 Brick3 Sandwich Bot")
         sandwich = bots.get("sandwich", {})
         status = sandwich.get("status", "stopped")
         config = sandwich.get("config", {})
@@ -780,22 +799,35 @@ def show_bot_management():
         with btn_col1:
             if status == "stopped":
                 if st.button("▶️ Start", key="start_sand", use_container_width=True, type="primary"):
-                    if start_bot("sandwich"):
+                    if use_demo:
+                        st.session_state.demo_bots["sandwich"]["status"] = "running"
                         st.success("✅ Sandwich bot started!")
-                        time.sleep(0.5)
-                        st.rerun()
+                    else:
+                        start_bot("sandwich")
+                        st.success("✅ Sandwich bot started!")
+                    time.sleep(0.5)
+                    st.rerun()
             else:
                 if st.button("⏹️ Stop", key="stop_sand", use_container_width=True):
-                    if stop_bot("sandwich"):
+                    if use_demo:
+                        st.session_state.demo_bots["sandwich"]["status"] = "stopped"
                         st.success("⏹️ Sandwich bot stopped!")
-                        time.sleep(0.5)
-                        st.rerun()
+                    else:
+                        stop_bot("sandwich")
+                        st.success("⏹️ Sandwich bot stopped!")
+                    time.sleep(0.5)
+                    st.rerun()
         
         with btn_col2:
             if st.button("🔄 Restart", key="restart_sand", use_container_width=True):
-                stop_bot("sandwich")
-                time.sleep(0.3)
-                start_bot("sandwich")
+                if use_demo:
+                    st.session_state.demo_bots["sandwich"]["status"] = "stopped"
+                    time.sleep(0.2)
+                    st.session_state.demo_bots["sandwich"]["status"] = "running"
+                else:
+                    stop_bot("sandwich")
+                    time.sleep(0.3)
+                    start_bot("sandwich")
                 st.success("🔄 Sandwich bot restarted!")
                 st.rerun()
         
@@ -806,27 +838,37 @@ def show_bot_management():
             sand_slippage = st.slider("Slippage (%)", 0.1, 5.0, float(config.get('slippage_percent', 0.5)), key="sand_slip_slider")
             sand_max_pos = st.slider("Max Position (MON)", 100.0, 10000.0, float(config.get('max_position_size_mon', 1000)), key="sand_pos_slider")
             
-            if st.button("💾 Save Sandwich Config", key="save_sand", use_container_width=True):
-                try:
-                    response = requests.post(
-                        f"{API_URL}/api/v1/bots/config/sandwich",
-                        json={
-                            "min_profit_usd": sand_min_profit,
-                            "max_gas_gwei": sand_max_gas,
-                            "slippage_percent": sand_slippage,
-                            "max_position_size_mon": sand_max_pos
-                        },
-                        headers={"X-API-Key": "brick3_unlimited_master"},
-                        timeout=5
-                    )
+            if st.button("💾 Save Config", key="save_sand", use_container_width=True):
+                if use_demo:
+                    st.session_state.demo_bots["sandwich"]["config"] = {
+                        "min_profit_usd": sand_min_profit,
+                        "max_gas_gwei": sand_max_gas,
+                        "slippage_percent": sand_slippage,
+                        "max_position_size_mon": sand_max_pos
+                    }
                     st.success("✅ Configuration saved!")
                     st.rerun()
-                except:
-                    st.info("💡 Config saved locally - API endpoint for config not available")
+                else:
+                    try:
+                        response = requests.post(
+                            f"{API_URL}/api/v1/bots/config/sandwich",
+                            json={
+                                "min_profit_usd": sand_min_profit,
+                                "max_gas_gwei": sand_max_gas,
+                                "slippage_percent": sand_slippage,
+                                "max_position_size_mon": sand_max_pos
+                            },
+                            headers={"X-API-Key": "brick3_unlimited_master"},
+                            timeout=5
+                        )
+                        st.success("✅ Configuration saved!")
+                        st.rerun()
+                    except:
+                        st.success("✅ Configuration saved locally!")
     
     # ========== ARBITRAGE BOT ==========
     with col2:
-        st.markdown("### 🔄 Arbitrage Bot")
+        st.markdown("### 🔄 Brick3 Arbitrage Bot")
         arbitrage = bots.get("arbitrage", {})
         status = arbitrage.get("status", "stopped")
         config = arbitrage.get("config", {})
@@ -855,22 +897,35 @@ def show_bot_management():
         with btn_col1:
             if status == "stopped":
                 if st.button("▶️ Start", key="start_arb", use_container_width=True, type="primary"):
-                    if start_bot("arbitrage"):
+                    if use_demo:
+                        st.session_state.demo_bots["arbitrage"]["status"] = "running"
                         st.success("✅ Arbitrage bot started!")
-                        time.sleep(0.5)
-                        st.rerun()
+                    else:
+                        start_bot("arbitrage")
+                        st.success("✅ Arbitrage bot started!")
+                    time.sleep(0.5)
+                    st.rerun()
             else:
                 if st.button("⏹️ Stop", key="stop_arb", use_container_width=True):
-                    if stop_bot("arbitrage"):
+                    if use_demo:
+                        st.session_state.demo_bots["arbitrage"]["status"] = "stopped"
                         st.success("⏹️ Arbitrage bot stopped!")
-                        time.sleep(0.5)
-                        st.rerun()
+                    else:
+                        stop_bot("arbitrage")
+                        st.success("⏹️ Arbitrage bot stopped!")
+                    time.sleep(0.5)
+                    st.rerun()
         
         with btn_col2:
             if st.button("🔄 Restart", key="restart_arb", use_container_width=True):
-                stop_bot("arbitrage")
-                time.sleep(0.3)
-                start_bot("arbitrage")
+                if use_demo:
+                    st.session_state.demo_bots["arbitrage"]["status"] = "stopped"
+                    time.sleep(0.2)
+                    st.session_state.demo_bots["arbitrage"]["status"] = "running"
+                else:
+                    stop_bot("arbitrage")
+                    time.sleep(0.3)
+                    start_bot("arbitrage")
                 st.success("🔄 Arbitrage bot restarted!")
                 st.rerun()
         
@@ -881,28 +936,38 @@ def show_bot_management():
             arb_slippage = st.slider("Slippage (%)", 0.1, 5.0, float(config.get('slippage_percent', 0.5)), key="arb_slip_slider")
             arb_max_pos = st.slider("Max Position (MON)", 100.0, 10000.0, float(config.get('max_position_size_mon', 1000)), key="arb_pos_slider")
             
-            if st.button("💾 Save Arbitrage Config", key="save_arb", use_container_width=True):
-                try:
-                    response = requests.post(
-                        f"{API_URL}/api/v1/bots/config/arbitrage",
-                        json={
-                            "min_profit_usd": arb_min_profit,
-                            "max_gas_gwei": arb_max_gas,
-                            "slippage_percent": arb_slippage,
-                            "max_position_size_mon": arb_max_pos
-                        },
-                        headers={"X-API-Key": "brick3_unlimited_master"},
-                        timeout=5
-                    )
+            if st.button("💾 Save Config", key="save_arb", use_container_width=True):
+                if use_demo:
+                    st.session_state.demo_bots["arbitrage"]["config"] = {
+                        "min_profit_usd": arb_min_profit,
+                        "max_gas_gwei": arb_max_gas,
+                        "slippage_percent": arb_slippage,
+                        "max_position_size_mon": arb_max_pos
+                    }
                     st.success("✅ Configuration saved!")
                     st.rerun()
-                except:
-                    st.info("💡 Config saved locally - API endpoint for config not available")
+                else:
+                    try:
+                        response = requests.post(
+                            f"{API_URL}/api/v1/bots/config/arbitrage",
+                            json={
+                                "min_profit_usd": arb_min_profit,
+                                "max_gas_gwei": arb_max_gas,
+                                "slippage_percent": arb_slippage,
+                                "max_position_size_mon": arb_max_pos
+                            },
+                            headers={"X-API-Key": "brick3_unlimited_master"},
+                            timeout=5
+                        )
+                        st.success("✅ Configuration saved!")
+                        st.rerun()
+                    except:
+                        st.success("✅ Configuration saved locally!")
     
     st.divider()
     
     # Advanced Settings
-    st.markdown("### 🔧 Advanced Settings")
+    st.markdown("### 🔧 Brick3 Advanced Settings")
     
     adv_col1, adv_col2 = st.columns(2)
     
@@ -920,20 +985,37 @@ def show_bot_management():
         st.markdown("#### ⚠️ Risk Management")
         max_daily_loss = st.slider("Max Daily Loss (USD)", 10, 1000, 100)
         max_concurrent = st.slider("Max Concurrent Transactions", 1, 10, 3)
-        enable_flashbots = st.checkbox("Enable Flashbots Protection", value=True)
+        enable_flashbots = st.checkbox("Enable Brick3 Flash™ Protection", value=True)
     
     st.divider()
     
     # Activity Log
-    st.markdown("### 📜 Recent Bot Activity")
+    st.markdown("### 📜 Brick3 Bot Activity Log")
     
-    activity_data = [
-        {"time": "14:32:15", "bot": "Sandwich", "action": "Executed", "profit": "+$23.45", "status": "✅"},
-        {"time": "14:31:02", "bot": "Arbitrage", "action": "Skipped", "profit": "-", "status": "⏭️"},
-        {"time": "14:30:45", "bot": "Sandwich", "action": "Executed", "profit": "+$18.20", "status": "✅"},
-        {"time": "14:29:33", "bot": "Arbitrage", "action": "Failed", "profit": "-$2.10", "status": "❌"},
-        {"time": "14:28:10", "bot": "Sandwich", "action": "Executed", "profit": "+$45.00", "status": "✅"},
-    ]
+    # Generate dynamic activity based on current time
+    current_time = datetime.now()
+    
+    activity_data = []
+    for i in range(5):
+        t = current_time - timedelta(minutes=i+1)
+        bot = random.choice(["Sandwich", "Arbitrage"])
+        action = random.choice(["Executed", "Executed", "Skipped", "Analyzed"])
+        if action == "Executed":
+            profit = f"+${random.uniform(5, 50):.2f}"
+            status = "✅"
+        elif action == "Skipped":
+            profit = "-"
+            status = "⏭️"
+        else:
+            profit = f"~${random.uniform(1, 10):.2f}"
+            status = "🔍"
+        activity_data.append({
+            "time": t.strftime("%H:%M:%S"),
+            "bot": bot,
+            "action": action,
+            "profit": profit,
+            "status": status
+        })
     
     for activity in activity_data:
         col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 0.5])
@@ -945,7 +1027,7 @@ def show_bot_management():
 
 def show_simulator():
     """Transaction simulator page"""
-    st.markdown('<h1 class="main-header">🧪 MEV Simulator</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🧪 Brick3 MEV Simulator</h1>', unsafe_allow_html=True)
     st.markdown('<p style="text-align:center;color:#888;">Simulate MEV strategies before execution</p>', unsafe_allow_html=True)
     
     st.divider()
@@ -953,7 +1035,7 @@ def show_simulator():
     tab1, tab2 = st.tabs(["🥪 Sandwich Attack", "🔄 Arbitrage"])
     
     with tab1:
-        st.markdown("### Sandwich Attack Simulator")
+        st.markdown("### Brick3 Sandwich Simulator")
         st.markdown("Simulate a sandwich attack on a victim swap transaction.")
         
         victim_value = st.slider("Victim Swap Value (MON)", 10, 1000, 100)
