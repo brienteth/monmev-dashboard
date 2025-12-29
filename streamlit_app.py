@@ -1,6 +1,6 @@
 """
-🧱 Brick3 MEV Dashboard - %100 GERÇEK VERİ
-Monad Blockchain Real-time MEV Monitoring
+🧱 Brick3 MEV Platform - Full Featured Dashboard
+Monad Blockchain MEV Monitoring & Bot Management
 """
 
 import streamlit as st
@@ -12,7 +12,7 @@ import os
 
 # ==================== PAGE CONFIG ====================
 st.set_page_config(
-    page_title="🧱 Brick3 MEV Dashboard",
+    page_title="🧱 Brick3 MEV Platform",
     page_icon="🧱",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -21,6 +21,7 @@ st.set_page_config(
 # ==================== CONFIG ====================
 MONAD_RPC = "https://rpc.monad.xyz"  # MAINNET
 MON_PRICE_USD = 1.5
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # ==================== STYLES ====================
 st.markdown("""
@@ -34,6 +35,13 @@ st.markdown("""
     font-weight: 800;
     text-align: center;
 }
+.metric-card {
+    background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+    border: 1px solid #3d3d5c;
+    border-radius: 16px;
+    padding: 20px;
+    margin: 10px 0;
+}
 .tx-card {
     background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
     border: 1px solid #3d3d5c;
@@ -41,10 +49,20 @@ st.markdown("""
     padding: 15px;
     margin: 8px 0;
 }
-.badge-whale { background: #4ecdc4; color: white; padding: 4px 12px; border-radius: 20px; }
-.badge-contract { background: #ffd93d; color: black; padding: 4px 12px; border-radius: 20px; }
-.badge-transfer { background: #95a5a6; color: white; padding: 4px 12px; border-radius: 20px; }
-.badge-swap { background: #ff6b6b; color: white; padding: 4px 12px; border-radius: 20px; }
+.bot-card {
+    background: linear-gradient(135deg, #1a1a2e 0%, #2a2a4e 100%);
+    border: 1px solid #4a4a7c;
+    border-radius: 16px;
+    padding: 20px;
+    margin: 10px 0;
+}
+.bot-running { border-left: 4px solid #4caf50; }
+.bot-stopped { border-left: 4px solid #f44336; }
+.badge-whale { background: #4ecdc4; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; }
+.badge-contract { background: #ffd93d; color: black; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; }
+.badge-transfer { background: #95a5a6; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; }
+.badge-swap { background: #ff6b6b; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; }
+.badge-micro { background: #9b59b6; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; }
 .live-dot {
     display: inline-block;
     width: 10px;
@@ -58,20 +76,25 @@ st.markdown("""
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
 }
+.status-running { color: #4caf50; font-weight: bold; }
+.status-stopped { color: #f44336; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==================== SESSION STATE ====================
-if "transactions" not in st.session_state:
-    st.session_state.transactions = []
-if "last_block" not in st.session_state:
-    st.session_state.last_block = 0
-if "scan_count" not in st.session_state:
-    st.session_state.scan_count = 0
-if "total_value" not in st.session_state:
-    st.session_state.total_value = 0
+defaults = {
+    "transactions": [],
+    "last_block": 0,
+    "scan_count": 0,
+    "total_value": 0,
+    "bots": {},
+    "page": "dashboard"
+}
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
-# ==================== DIRECT RPC FUNCTIONS ====================
+# ==================== RPC FUNCTIONS ====================
 def rpc_call(method, params=None):
     """Direct JSON-RPC call to Monad"""
     try:
@@ -79,7 +102,7 @@ def rpc_call(method, params=None):
             MONAD_RPC,
             json={"jsonrpc": "2.0", "method": method, "params": params or [], "id": 1},
             headers={"Content-Type": "application/json"},
-            timeout=10
+            timeout=15
         )
         if response.status_code == 200:
             return response.json().get("result")
@@ -88,15 +111,11 @@ def rpc_call(method, params=None):
     return None
 
 def hex_to_int(h):
-    """Hex to int"""
-    if not h:
-        return 0
-    if isinstance(h, int):
-        return h
-    return int(h, 16) if h.startswith("0x") else int(h)
+    if not h: return 0
+    if isinstance(h, int): return h
+    return int(h, 16) if str(h).startswith("0x") else int(h)
 
 def wei_to_mon(w):
-    """Wei to MON"""
     return w / 10**18
 
 # ==================== SWAP SIGNATURES ====================
@@ -106,23 +125,24 @@ SWAP_SIGS = {
     "0x18cbafe5": "swapExactTokensForETH",
     "0x414bf389": "exactInputSingle",
     "0xc04b8d59": "exactInput",
+    "0x5c11d795": "swapExactTokensForTokensSupportingFee",
+    "0xb6f9de95": "swapExactETHForTokensSupportingFee",
+    "0x791ac947": "swapExactTokensForETHSupportingFee",
 }
 
 # ==================== BLOCKCHAIN SCANNER ====================
 def scan_blockchain():
-    """Scan Monad blockchain and return REAL transactions"""
+    """Scan Monad blockchain for ALL transactions"""
     transactions = []
     
-    # Get latest block
     block_hex = rpc_call("eth_blockNumber")
     if not block_hex:
         return [], 0
     
     latest_block = hex_to_int(block_hex)
-    total_value = 0
     
-    # Scan last 10 blocks
-    for offset in range(10):
+    # Scan last 15 blocks for more variety
+    for offset in range(15):
         block_num = latest_block - offset
         block = rpc_call("eth_getBlockByNumber", [hex(block_num), True])
         
@@ -133,14 +153,12 @@ def scan_blockchain():
             parsed = parse_transaction(tx, block_num)
             if parsed:
                 transactions.append(parsed)
-                total_value += parsed["value_mon"]
     
     return transactions, latest_block
 
 def parse_transaction(tx, block_num):
-    """Parse a single transaction into display format"""
+    """Parse transaction - show ALL value ranges"""
     try:
-        # Extract basic info
         tx_hash = tx.get("hash", "")
         to_addr = tx.get("to", "") or ""
         from_addr = tx.get("from", "") or ""
@@ -148,28 +166,37 @@ def parse_transaction(tx, block_num):
         value_mon = wei_to_mon(value_wei)
         input_data = tx.get("input", "0x") or "0x"
         gas_price = hex_to_int(tx.get("gasPrice", "0x0"))
+        gas_used = hex_to_int(tx.get("gas", "0x0"))
         
-        # Determine transaction type
         func_sig = input_data[:10] if len(input_data) >= 10 else ""
         
+        # Classify transaction type
         if func_sig in SWAP_SIGS:
             tx_type = "swap"
-            type_label = f"🔄 {SWAP_SIGS[func_sig]}"
-            profit_estimate = max(value_mon * 0.005, 0.5) * MON_PRICE_USD
-        elif value_mon >= 10:
+            type_label = f"🔄 DEX Swap"
+            profit_estimate = max(value_mon * 0.005, 0.5)
+        elif value_mon >= 100:
             tx_type = "whale"
-            type_label = f"🐋 Large Transfer ({value_mon:.2f} MON)"
-            profit_estimate = value_mon * 0.01 * MON_PRICE_USD
+            type_label = f"🐋 Whale Transfer"
+            profit_estimate = value_mon * 0.01
+        elif value_mon >= 10:
+            tx_type = "large"
+            type_label = f"💰 Large Transfer"
+            profit_estimate = value_mon * 0.005
+        elif value_mon >= 1:
+            tx_type = "medium"
+            type_label = f"💵 Medium Transfer"
+            profit_estimate = value_mon * 0.003
+        elif value_mon > 0:
+            tx_type = "micro"
+            type_label = f"🔹 Micro Transfer"
+            profit_estimate = 0.1
         elif len(input_data) > 10 and to_addr:
             tx_type = "contract"
             type_label = "📄 Contract Call"
-            profit_estimate = 0.5 * MON_PRICE_USD
-        elif value_mon > 0:
-            tx_type = "transfer"
-            type_label = f"💸 Transfer ({value_mon:.4f} MON)"
-            profit_estimate = 0.1 * MON_PRICE_USD
+            profit_estimate = 0.5
         else:
-            return None  # Skip zero-value non-contract txs
+            return None
         
         return {
             "hash": tx_hash,
@@ -177,75 +204,123 @@ def parse_transaction(tx, block_num):
             "from": from_addr,
             "short_from": f"{from_addr[:8]}...{from_addr[-4:]}" if from_addr else "Unknown",
             "to": to_addr,
-            "short_to": f"{to_addr[:8]}...{to_addr[-4:]}" if to_addr else "Contract Create",
+            "short_to": f"{to_addr[:8]}...{to_addr[-4:]}" if to_addr else "Contract",
             "value_mon": value_mon,
             "value_usd": value_mon * MON_PRICE_USD,
             "type": tx_type,
             "type_label": type_label,
             "block": block_num,
-            "profit_estimate": round(profit_estimate, 2),
+            "profit_estimate": round(profit_estimate * MON_PRICE_USD, 2),
             "gas_gwei": gas_price / 10**9,
+            "gas_limit": gas_used,
             "timestamp": datetime.now().strftime("%H:%M:%S"),
             "input_preview": input_data[:20] + "..." if len(input_data) > 20 else input_data,
+            "func_sig": func_sig,
         }
     except:
         return None
 
-# ==================== DISPLAY FUNCTIONS ====================
-def show_transactions(txs):
-    """Display transaction list"""
-    if not txs:
-        st.info("Bu kategoride işlem yok. 'Blockchain Tara' butonuna tıklayın.")
-        return
-    
-    for tx in txs[:50]:
-        badge_class = f"badge-{tx['type']}"
-        
-        st.markdown(f"""
-        <div class="tx-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                    <span class="{badge_class}">{tx['type'].upper()}</span>
-                    <span style="color:#fff;margin-left:10px;font-family:monospace;">{tx['short_hash']}</span>
-                </div>
-                <div style="text-align:right;">
-                    <span style="color:#4ecdc4;font-weight:bold;">{tx['value_mon']:.4f} MON</span>
-                    <span style="color:#888;margin-left:5px;">(${tx['value_usd']:.2f})</span>
-                </div>
-            </div>
-            <div style="margin-top:10px;font-size:0.85em;color:#888;">
-                <span>📤 {tx['short_from']}</span>
-                <span style="margin:0 10px;">→</span>
-                <span>📥 {tx['short_to']}</span>
-            </div>
-            <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:0.8em;">
-                <span style="color:#667eea;">Block #{tx['block']:,}</span>
-                <span style="color:#ffd93d;">MEV: ${tx['profit_estimate']:.2f}</span>
-                <span style="color:#888;">⏱️ {tx['timestamp']}</span>
-            </div>
-            <div style="margin-top:5px;font-size:0.75em;color:#666;">
-                {tx['type_label']}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        with st.expander(f"🔍 Details - {tx['short_hash']}"):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.code(f"Hash: {tx['hash']}")
-                st.code(f"From: {tx['from']}")
-                st.code(f"To: {tx['to']}")
-            with col2:
-                st.write(f"**Value:** {tx['value_mon']:.6f} MON")
-                st.write(f"**Gas Price:** {tx['gas_gwei']:.2f} Gwei")
-                st.write(f"**Input:** {tx['input_preview']}")
-            
-            explorer_url = f"https://monadexplorer.com/tx/{tx['hash']}"
-            st.markdown(f"[🔗 View on Explorer]({explorer_url})")
+# ==================== BOT MANAGEMENT ====================
+def get_bot_status():
+    """Get bot status from API"""
+    try:
+        response = requests.get(f"{API_URL}/api/v1/bots/status", 
+                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               timeout=5)
+        if response.status_code == 200:
+            return response.json().get("bots", {}).get("bots", {})
+    except:
+        pass
+    return None
 
-# ==================== MAIN UI ====================
-def main():
-    # Header
+def start_bot(bot_type):
+    """Start a bot"""
+    try:
+        response = requests.post(f"{API_URL}/api/v1/bots/start/{bot_type}",
+                                headers={"X-API-Key": "brick3_unlimited_master"},
+                                timeout=5)
+        return response.status_code == 200
+    except:
+        return False
+
+def stop_bot(bot_type):
+    """Stop a bot"""
+    try:
+        response = requests.post(f"{API_URL}/api/v1/bots/stop/{bot_type}",
+                                headers={"X-API-Key": "brick3_unlimited_master"},
+                                timeout=5)
+        return response.status_code == 200
+    except:
+        return False
+
+def simulate_sandwich(victim_value):
+    """Simulate sandwich attack"""
+    try:
+        response = requests.get(f"{API_URL}/api/v1/simulate/sandwich",
+                               params={"victim_value_mon": victim_value},
+                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               timeout=5)
+        if response.status_code == 200:
+            return response.json()
+    except:
+        pass
+    return None
+
+def simulate_arbitrage(amount, hops):
+    """Simulate arbitrage"""
+    try:
+        response = requests.get(f"{API_URL}/api/v1/simulate/arbitrage",
+                               params={"amount_in_mon": amount, "hops": hops},
+                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               timeout=5)
+        if response.status_code == 200:
+            return response.json()
+    except:
+        pass
+    return None
+
+def get_revenue_summary():
+    """Get revenue summary"""
+    try:
+        response = requests.get(f"{API_URL}/api/v1/revenue/summary",
+                               headers={"X-API-Key": "brick3_unlimited_master"},
+                               timeout=5)
+        if response.status_code == 200:
+            return response.json()
+    except:
+        pass
+    return None
+
+# ==================== UI COMPONENTS ====================
+def show_sidebar():
+    """Sidebar navigation"""
+    with st.sidebar:
+        st.markdown("## 🧱 Brick3 MEV")
+        st.markdown("---")
+        
+        if st.button("📊 Dashboard", use_container_width=True):
+            st.session_state.page = "dashboard"
+        if st.button("🤖 Bot Management", use_container_width=True):
+            st.session_state.page = "bots"
+        if st.button("🧪 Simulator", use_container_width=True):
+            st.session_state.page = "simulator"
+        if st.button("💰 Revenue", use_container_width=True):
+            st.session_state.page = "revenue"
+        if st.button("⚡ Fastlane", use_container_width=True):
+            st.session_state.page = "fastlane"
+        
+        st.markdown("---")
+        st.markdown("### 📈 Quick Stats")
+        st.metric("Block", f"{st.session_state.last_block:,}")
+        st.metric("Scans", st.session_state.scan_count)
+        
+        st.markdown("---")
+        st.markdown("### 🔗 Network")
+        st.success("🟢 Monad Mainnet")
+        st.caption(f"RPC: {MONAD_RPC[:30]}...")
+
+def show_dashboard():
+    """Main dashboard page"""
     st.markdown('<h1 class="main-header">🧱 Brick3 MEV Dashboard</h1>', unsafe_allow_html=True)
     st.markdown('<p style="text-align:center;color:#888;">Real-time Monad Blockchain Monitoring - MAINNET 🟢</p>', unsafe_allow_html=True)
     
@@ -271,7 +346,7 @@ def main():
                     st.session_state.last_block = block
                     st.session_state.scan_count += 1
                     st.session_state.total_value = sum(t["value_mon"] for t in txs)
-                    st.success(f"✅ Found {len(txs)} real transactions!")
+                    st.success(f"✅ Found {len(txs)} transactions!")
                 else:
                     st.warning("No transactions found, try again.")
     
@@ -282,43 +357,455 @@ def main():
     
     # Stats
     if st.session_state.transactions:
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            st.metric("📊 Total Transactions", len(st.session_state.transactions))
+            st.metric("📊 Total TXs", len(st.session_state.transactions))
         with col2:
-            whale_count = len([t for t in st.session_state.transactions if t["type"] == "whale"])
-            st.metric("🐋 Whale Transactions", whale_count)
+            whale_count = len([t for t in st.session_state.transactions if t["type"] in ["whale", "large"]])
+            st.metric("🐋 Large TXs", whale_count)
         with col3:
-            st.metric("💰 Total Value", f"{st.session_state.total_value:,.2f} MON")
+            swap_count = len([t for t in st.session_state.transactions if t["type"] == "swap"])
+            st.metric("🔄 Swaps", swap_count)
         with col4:
+            st.metric("💰 Total Value", f"{st.session_state.total_value:,.2f} MON")
+        with col5:
             total_profit = sum(t["profit_estimate"] for t in st.session_state.transactions)
             st.metric("📈 MEV Potential", f"${total_profit:,.2f}")
     
     # Filter tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🔥 All", "🐋 Whale", "🔄 Swap", "📄 Contract"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔥 All", "🐋 Whale", "🔄 Swap", "📄 Contract", "🔹 Micro"])
     
     with tab1:
         show_transactions(st.session_state.transactions)
-    
     with tab2:
-        whale_txs = [t for t in st.session_state.transactions if t["type"] == "whale"]
+        whale_txs = [t for t in st.session_state.transactions if t["type"] in ["whale", "large"]]
         show_transactions(whale_txs)
-    
     with tab3:
         swap_txs = [t for t in st.session_state.transactions if t["type"] == "swap"]
         show_transactions(swap_txs)
-    
     with tab4:
         contract_txs = [t for t in st.session_state.transactions if t["type"] == "contract"]
         show_transactions(contract_txs)
+    with tab5:
+        micro_txs = [t for t in st.session_state.transactions if t["type"] in ["micro", "medium"]]
+        show_transactions(micro_txs)
     
-    # Auto refresh
     if auto_refresh:
         time.sleep(5)
         st.rerun()
 
-# ==================== RUN ====================
+def show_transactions(txs):
+    """Display transaction list"""
+    if not txs:
+        st.info("No transactions in this category. Click 'Scan Blockchain' to fetch data.")
+        return
+    
+    for tx in txs[:50]:
+        badge_class = f"badge-{tx['type']}" if tx['type'] in ['whale', 'contract', 'transfer', 'swap', 'micro'] else 'badge-transfer'
+        
+        st.markdown(f"""
+        <div class="tx-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <span class="{badge_class}">{tx['type'].upper()}</span>
+                    <span style="color:#fff;margin-left:10px;font-family:monospace;">{tx['short_hash']}</span>
+                </div>
+                <div style="text-align:right;">
+                    <span style="color:#4ecdc4;font-weight:bold;">{tx['value_mon']:.4f} MON</span>
+                    <span style="color:#888;margin-left:5px;">(${tx['value_usd']:.2f})</span>
+                </div>
+            </div>
+            <div style="margin-top:10px;font-size:0.85em;color:#888;">
+                <span>📤 {tx['short_from']}</span>
+                <span style="margin:0 10px;">→</span>
+                <span>📥 {tx['short_to']}</span>
+            </div>
+            <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:0.8em;">
+                <span style="color:#667eea;">Block #{tx['block']:,}</span>
+                <span style="color:#ffd93d;">MEV: ${tx['profit_estimate']:.2f}</span>
+                <span style="color:#888;">⏱️ {tx['timestamp']}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.expander(f"🔍 Details - {tx['short_hash']}"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.code(f"Hash: {tx['hash']}")
+                st.code(f"From: {tx['from']}")
+                st.code(f"To: {tx['to']}")
+            with col2:
+                st.write(f"**Value:** {tx['value_mon']:.6f} MON")
+                st.write(f"**Gas Price:** {tx['gas_gwei']:.2f} Gwei")
+                st.write(f"**Type:** {tx['type_label']}")
+            
+            explorer_url = f"https://monadexplorer.com/tx/{tx['hash']}"
+            st.markdown(f"[🔗 View on Explorer]({explorer_url})")
+
+def show_bot_management():
+    """Bot management page"""
+    st.markdown('<h1 class="main-header">🤖 Bot Management</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Control and monitor your MEV bots</p>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Fetch bot status
+    bots = get_bot_status()
+    
+    if not bots:
+        st.warning("⚠️ Could not connect to API. Make sure the API server is running.")
+        st.code("python monmev_api.py")
+        return
+    
+    # Bot cards
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 🥪 Sandwich Bot")
+        sandwich = bots.get("sandwich", {})
+        status = sandwich.get("status", "stopped")
+        config = sandwich.get("config", {})
+        
+        status_class = "bot-running" if status == "running" else "bot-stopped"
+        st.markdown(f"""
+        <div class="bot-card {status_class}">
+            <h4>Status: <span class="status-{'running' if status == 'running' else 'stopped'}">{status.upper()}</span></h4>
+            <p>Min Profit: ${config.get('min_profit_usd', 50)}</p>
+            <p>Max Gas: {config.get('max_gas_gwei', 100)} Gwei</p>
+            <p>Slippage: {config.get('slippage_percent', 0.5)}%</p>
+            <p>Max Position: {config.get('max_position_size_mon', 1000)} MON</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("▶️ Start Sandwich", use_container_width=True, disabled=status=="running"):
+                if start_bot("sandwich"):
+                    st.success("Sandwich bot started!")
+                    st.rerun()
+        with col_b:
+            if st.button("⏹️ Stop Sandwich", use_container_width=True, disabled=status=="stopped"):
+                if stop_bot("sandwich"):
+                    st.success("Sandwich bot stopped!")
+                    st.rerun()
+    
+    with col2:
+        st.markdown("### 🔄 Arbitrage Bot")
+        arbitrage = bots.get("arbitrage", {})
+        status = arbitrage.get("status", "stopped")
+        config = arbitrage.get("config", {})
+        
+        status_class = "bot-running" if status == "running" else "bot-stopped"
+        st.markdown(f"""
+        <div class="bot-card {status_class}">
+            <h4>Status: <span class="status-{'running' if status == 'running' else 'stopped'}">{status.upper()}</span></h4>
+            <p>Min Profit: ${config.get('min_profit_usd', 20)}</p>
+            <p>Max Gas: {config.get('max_gas_gwei', 100)} Gwei</p>
+            <p>Slippage: {config.get('slippage_percent', 0.5)}%</p>
+            <p>Max Position: {config.get('max_position_size_mon', 1000)} MON</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("▶️ Start Arbitrage", use_container_width=True, disabled=status=="running"):
+                if start_bot("arbitrage"):
+                    st.success("Arbitrage bot started!")
+                    st.rerun()
+        with col_b:
+            if st.button("⏹️ Stop Arbitrage", use_container_width=True, disabled=status=="stopped"):
+                if stop_bot("arbitrage"):
+                    st.success("Arbitrage bot stopped!")
+                    st.rerun()
+    
+    st.divider()
+    
+    # Bot Configuration
+    st.markdown("### ⚙️ Bot Configuration")
+    
+    with st.expander("Configure Sandwich Bot"):
+        col1, col2 = st.columns(2)
+        with col1:
+            min_profit = st.number_input("Min Profit (USD)", value=50.0, min_value=1.0, key="sand_profit")
+            max_gas = st.number_input("Max Gas (Gwei)", value=100.0, min_value=1.0, key="sand_gas")
+        with col2:
+            slippage = st.number_input("Slippage (%)", value=0.5, min_value=0.1, max_value=5.0, key="sand_slip")
+            max_position = st.number_input("Max Position (MON)", value=1000.0, min_value=10.0, key="sand_pos")
+        
+        if st.button("💾 Save Sandwich Config"):
+            st.info("Configuration saved (API endpoint needed)")
+    
+    with st.expander("Configure Arbitrage Bot"):
+        col1, col2 = st.columns(2)
+        with col1:
+            min_profit = st.number_input("Min Profit (USD)", value=20.0, min_value=1.0, key="arb_profit")
+            max_gas = st.number_input("Max Gas (Gwei)", value=100.0, min_value=1.0, key="arb_gas")
+        with col2:
+            slippage = st.number_input("Slippage (%)", value=0.5, min_value=0.1, max_value=5.0, key="arb_slip")
+            max_position = st.number_input("Max Position (MON)", value=1000.0, min_value=10.0, key="arb_pos")
+        
+        if st.button("💾 Save Arbitrage Config"):
+            st.info("Configuration saved (API endpoint needed)")
+
+def show_simulator():
+    """Transaction simulator page"""
+    st.markdown('<h1 class="main-header">🧪 MEV Simulator</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Simulate MEV strategies before execution</p>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    tab1, tab2 = st.tabs(["🥪 Sandwich Attack", "🔄 Arbitrage"])
+    
+    with tab1:
+        st.markdown("### Sandwich Attack Simulator")
+        st.markdown("Simulate a sandwich attack on a victim swap transaction.")
+        
+        victim_value = st.slider("Victim Swap Value (MON)", 10, 1000, 100)
+        
+        if st.button("🧪 Simulate Sandwich", type="primary"):
+            with st.spinner("Simulating..."):
+                result = simulate_sandwich(victim_value)
+                
+                if result and "simulation" in result:
+                    sim = result["simulation"]
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Gross Profit", f"{sim.get('gross_profit_mon', 0):.4f} MON")
+                    with col2:
+                        st.metric("Gas Cost", f"{sim.get('gas_cost_mon', 0):.4f} MON")
+                    with col3:
+                        net = sim.get('net_profit_mon', 0)
+                        st.metric("Net Profit", f"{net:.4f} MON", 
+                                 delta=f"${sim.get('net_profit_usd', 0):.2f}")
+                    
+                    st.markdown("**Execution Path:**")
+                    for step in sim.get("execution_path", []):
+                        st.write(f"  {step}")
+                    
+                    if sim.get("warnings"):
+                        st.warning("⚠️ Warnings: " + ", ".join(sim["warnings"]))
+                else:
+                    st.error("Simulation failed. Check API connection.")
+    
+    with tab2:
+        st.markdown("### Arbitrage Simulator")
+        st.markdown("Simulate multi-hop arbitrage across DEXes.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            amount = st.slider("Input Amount (MON)", 10, 500, 50)
+        with col2:
+            hops = st.slider("Number of Hops", 2, 5, 3)
+        
+        if st.button("🧪 Simulate Arbitrage", type="primary"):
+            with st.spinner("Simulating..."):
+                result = simulate_arbitrage(amount, hops)
+                
+                if result and "simulation" in result:
+                    sim = result["simulation"]
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Gross Profit", f"{sim.get('gross_profit_mon', 0):.4f} MON")
+                    with col2:
+                        st.metric("Gas Cost", f"{sim.get('gas_cost_mon', 0):.4f} MON")
+                    with col3:
+                        net = sim.get('net_profit_mon', 0)
+                        st.metric("Net Profit", f"{net:.4f} MON",
+                                 delta=f"${sim.get('net_profit_usd', 0):.2f}")
+                    
+                    st.markdown("**Execution Path:**")
+                    for step in sim.get("execution_path", []):
+                        st.write(f"  {step}")
+                else:
+                    st.error("Simulation failed. Check API connection.")
+
+def show_revenue():
+    """Revenue tracking page"""
+    st.markdown('<h1 class="main-header">💰 Revenue Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Track MEV revenue and distribution</p>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    revenue = get_revenue_summary()
+    
+    if not revenue:
+        st.warning("⚠️ Could not fetch revenue data. Check API connection.")
+        return
+    
+    rev = revenue.get("revenue", {})
+    
+    # Distribution Model
+    st.markdown("### 📊 Revenue Distribution Model")
+    dist = rev.get("distribution_model", {})
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("🪙 shMON Holders", dist.get("shmon_holders", "70%"))
+    with col2:
+        st.metric("🧱 Brick3", dist.get("brick3", "20%"))
+    with col3:
+        st.metric("✅ Validators", dist.get("validators", "10%"))
+    
+    st.divider()
+    
+    # All-time Stats
+    st.markdown("### 📈 All-Time Statistics")
+    stats = rev.get("all_time_stats", {})
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Revenue", f"{stats.get('total_revenue_mon', 0)} MON")
+    with col2:
+        st.metric("Total USD", f"${stats.get('total_revenue_usd', 0):,.2f}")
+    with col3:
+        st.metric("shMON Earnings", f"{stats.get('shmon_holders_total_mon', 0)} MON")
+    with col4:
+        st.metric("Brick3 Earnings", f"{stats.get('brick3_total_mon', 0)} MON")
+    
+    st.divider()
+    
+    # APY Calculator
+    st.markdown("### 📊 APY Estimator")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        daily_volume = st.number_input("Daily MEV Volume (USD)", value=5000, min_value=100)
+    with col2:
+        tvl = st.number_input("Total Value Locked (USD)", value=1000000, min_value=10000)
+    
+    if st.button("📊 Calculate APY"):
+        try:
+            response = requests.get(f"{API_URL}/api/v1/revenue/estimate-apy",
+                                   params={"daily_mev_volume_usd": daily_volume, "tvl_usd": tvl},
+                                   headers={"X-API-Key": "brick3_unlimited_master"},
+                                   timeout=5)
+            if response.status_code == 200:
+                est = response.json().get("estimate", {})
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Daily Earnings", f"${est.get('daily_shmon_earnings_usd', 0):,.2f}")
+                with col2:
+                    st.metric("Yearly Earnings", f"${est.get('yearly_shmon_earnings_usd', 0):,.2f}")
+                with col3:
+                    st.metric("APY Boost", f"{est.get('estimated_apy_boost_percent', 0):.2f}%")
+        except:
+            st.error("Failed to calculate APY")
+
+def show_fastlane():
+    """Fastlane integration page"""
+    st.markdown('<h1 class="main-header">⚡ Fastlane Integration</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Direct transaction relay for MEV protection</p>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Fastlane Status
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div class="metric-card">
+            <h3>🚀 Brick3 Turbo™</h3>
+            <p style="color:#4caf50;font-size:1.5em;">Active</p>
+            <p style="color:#888;">Ultra-fast transaction relay</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="metric-card">
+            <h3>💾 Brick3 Flash™</h3>
+            <p style="color:#4caf50;font-size:1.5em;">Active</p>
+            <p style="color:#888;">Instant data caching</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class="metric-card">
+            <h3>🌊 Brick3 Flow™</h3>
+            <p style="color:#4caf50;font-size:1.5em;">Active</p>
+            <p style="color:#888;">Advanced mempool streaming</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Submit Transaction
+    st.markdown("### 📤 Submit Protected Transaction")
+    
+    with st.form("fastlane_tx"):
+        col1, col2 = st.columns(2)
+        with col1:
+            to_address = st.text_input("To Address", placeholder="0x...")
+            value = st.number_input("Value (MON)", min_value=0.0, value=0.0)
+        with col2:
+            gas_limit = st.number_input("Gas Limit", min_value=21000, value=100000)
+            priority_fee = st.number_input("Priority Fee (Gwei)", min_value=0.0, value=1.0)
+        
+        data = st.text_area("Data (hex)", placeholder="0x...")
+        
+        submitted = st.form_submit_button("🚀 Submit via Fastlane", type="primary")
+        
+        if submitted:
+            st.info("Transaction would be submitted via Fastlane relay")
+            st.json({
+                "to": to_address,
+                "value": value,
+                "gas_limit": gas_limit,
+                "priority_fee": priority_fee,
+                "data": data[:20] + "..." if len(data) > 20 else data
+            })
+    
+    st.divider()
+    
+    # Fastlane Endpoints
+    st.markdown("### 🔌 API Endpoints")
+    
+    st.code("""
+# Fastlane RPC Endpoint
+https://fastlane-rpc.monad.xyz
+
+# Submit Bundle
+POST /api/v1/bundle/submit
+{
+    "transactions": [...],
+    "block_number": "latest",
+    "min_timestamp": 0,
+    "max_timestamp": 0
+}
+
+# Get Bundle Status
+GET /api/v1/bundle/status/{bundle_id}
+    """, language="python")
+    
+    st.markdown("### 📚 Documentation")
+    st.markdown("""
+    - [Fastlane Quickstart Guide](./FASTLANE_QUICKSTART.md)
+    - [API Documentation](./FASTLANE_API_DOCS.md)
+    - [Integration Guide](./FASTLANE_INTEGRATION_DOCS.md)
+    """)
+
+# ==================== MAIN ====================
+def main():
+    show_sidebar()
+    
+    if st.session_state.page == "dashboard":
+        show_dashboard()
+    elif st.session_state.page == "bots":
+        show_bot_management()
+    elif st.session_state.page == "simulator":
+        show_simulator()
+    elif st.session_state.page == "revenue":
+        show_revenue()
+    elif st.session_state.page == "fastlane":
+        show_fastlane()
+    else:
+        show_dashboard()
+
 if __name__ == "__main__":
     main()
 else:
