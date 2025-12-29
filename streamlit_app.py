@@ -179,6 +179,10 @@ if "stats" not in st.session_state:
         "total_profit_usd": 0.0,
         "opportunities_by_type": {"sandwich": 0, "large_transfer": 0, "contract": 0, "transfer": 0},
     }
+if "seen_tx_hashes" not in st.session_state:
+    st.session_state.seen_tx_hashes = set()
+if "last_scan_time" not in st.session_state:
+    st.session_state.last_scan_time = 0
 
 # ==================== STYLES ====================
 st.markdown("""
@@ -392,13 +396,31 @@ with col4:
 
 st.markdown("---")
 
-# Scan if monitoring
+# Scan if monitoring (with rate limiting)
+import time as time_module
 if st.session_state.monitoring:
-    new_opps = scan_blockchain()
-    if new_opps:
-        st.session_state.opportunities = new_opps + st.session_state.opportunities
-        # Keep only last 100
-        st.session_state.opportunities = st.session_state.opportunities[:100]
+    current_time = time_module.time()
+    # Only scan every 3 seconds minimum
+    if current_time - st.session_state.last_scan_time >= 3:
+        st.session_state.last_scan_time = current_time
+        new_opps = scan_blockchain()
+        if new_opps:
+            # Filter out duplicates
+            unique_opps = []
+            for opp in new_opps:
+                tx_hash = opp.get("tx_hash", "")
+                if tx_hash and tx_hash not in st.session_state.seen_tx_hashes:
+                    st.session_state.seen_tx_hashes.add(tx_hash)
+                    unique_opps.append(opp)
+            
+            if unique_opps:
+                st.session_state.opportunities = unique_opps + st.session_state.opportunities
+                # Keep only last 100
+                st.session_state.opportunities = st.session_state.opportunities[:100]
+                # Clean up seen hashes (keep only last 500)
+                if len(st.session_state.seen_tx_hashes) > 500:
+                    recent_hashes = {o.get("tx_hash") for o in st.session_state.opportunities}
+                    st.session_state.seen_tx_hashes = recent_hashes
 
 # Filter opportunities
 filtered_opps = st.session_state.opportunities.copy()
@@ -448,7 +470,7 @@ else:
         
         st.markdown("---")
 
-# Auto-refresh
+# Auto-refresh with proper interval
 if auto_refresh and st.session_state.monitoring:
-    time.sleep(0.1)  # Small delay to prevent too frequent refreshes
+    time.sleep(refresh_interval)  # Use user-selected interval
     st.rerun()
