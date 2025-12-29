@@ -88,7 +88,11 @@ defaults = {
     "scan_count": 0,
     "total_value": 0,
     "bots": {},
-    "page": "dashboard"
+    "page": "dashboard",
+    "filter_min_mon": 0.0,
+    "filter_max_mon": 10000.0,
+    "filter_types": ["whale", "large", "medium", "micro", "swap", "contract"],
+    "blocks_to_scan": 20
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -131,7 +135,7 @@ SWAP_SIGS = {
 }
 
 # ==================== BLOCKCHAIN SCANNER ====================
-def scan_blockchain():
+def scan_blockchain(blocks_to_scan=20):
     """Scan Monad blockchain for ALL transactions"""
     transactions = []
     
@@ -141,8 +145,8 @@ def scan_blockchain():
     
     latest_block = hex_to_int(block_hex)
     
-    # Scan last 15 blocks for more variety
-    for offset in range(15):
+    # Scan specified number of blocks
+    for offset in range(blocks_to_scan):
         block_num = latest_block - offset
         block = rpc_call("eth_getBlockByNumber", [hex(block_num), True])
         
@@ -324,6 +328,104 @@ def show_dashboard():
     st.markdown('<h1 class="main-header">🧱 Brick3 MEV Dashboard</h1>', unsafe_allow_html=True)
     st.markdown('<p style="text-align:center;color:#888;">Real-time Monad Blockchain Monitoring - MAINNET 🟢</p>', unsafe_allow_html=True)
     
+    # ==================== FILTER CONTROLS ====================
+    st.markdown("### 🔧 Filter Settings")
+    
+    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns([1, 1, 2, 1])
+    
+    with filter_col1:
+        min_mon = st.number_input(
+            "⬇️ Min MON",
+            min_value=0.0,
+            max_value=100000.0,
+            value=st.session_state.filter_min_mon,
+            step=0.1,
+            help="Minimum transaction value in MON"
+        )
+        st.session_state.filter_min_mon = min_mon
+    
+    with filter_col2:
+        max_mon = st.number_input(
+            "⬆️ Max MON",
+            min_value=0.0,
+            max_value=100000.0,
+            value=st.session_state.filter_max_mon,
+            step=1.0,
+            help="Maximum transaction value in MON"
+        )
+        st.session_state.filter_max_mon = max_mon
+    
+    with filter_col3:
+        type_options = ["whale", "large", "medium", "micro", "swap", "contract"]
+        type_labels = {
+            "whale": "🐋 Whale (>=100 MON)",
+            "large": "💰 Large (>=10 MON)",
+            "medium": "💵 Medium (>=1 MON)",
+            "micro": "🔹 Micro (<1 MON)",
+            "swap": "🔄 DEX Swap",
+            "contract": "📄 Contract"
+        }
+        selected_types = st.multiselect(
+            "📊 Transaction Types",
+            options=type_options,
+            default=st.session_state.filter_types,
+            format_func=lambda x: type_labels.get(x, x),
+            help="Select which transaction types to show"
+        )
+        st.session_state.filter_types = selected_types if selected_types else type_options
+    
+    with filter_col4:
+        blocks_to_scan = st.slider(
+            "🔍 Blocks to Scan",
+            min_value=5,
+            max_value=50,
+            value=st.session_state.blocks_to_scan,
+            step=5,
+            help="Number of recent blocks to scan"
+        )
+        st.session_state.blocks_to_scan = blocks_to_scan
+    
+    # Quick filter presets
+    st.markdown("**Quick Filters:**")
+    preset_col1, preset_col2, preset_col3, preset_col4, preset_col5 = st.columns(5)
+    
+    with preset_col1:
+        if st.button("🐋 Whales Only", use_container_width=True):
+            st.session_state.filter_min_mon = 100.0
+            st.session_state.filter_max_mon = 100000.0
+            st.session_state.filter_types = ["whale", "large"]
+            st.rerun()
+    
+    with preset_col2:
+        if st.button("🔄 Swaps Only", use_container_width=True):
+            st.session_state.filter_min_mon = 0.0
+            st.session_state.filter_max_mon = 100000.0
+            st.session_state.filter_types = ["swap"]
+            st.rerun()
+    
+    with preset_col3:
+        if st.button("💵 1-100 MON", use_container_width=True):
+            st.session_state.filter_min_mon = 1.0
+            st.session_state.filter_max_mon = 100.0
+            st.session_state.filter_types = ["whale", "large", "medium", "swap", "contract"]
+            st.rerun()
+    
+    with preset_col4:
+        if st.button("🔹 Micro TXs", use_container_width=True):
+            st.session_state.filter_min_mon = 0.0001
+            st.session_state.filter_max_mon = 1.0
+            st.session_state.filter_types = ["micro"]
+            st.rerun()
+    
+    with preset_col5:
+        if st.button("🔄 Reset Filters", use_container_width=True):
+            st.session_state.filter_min_mon = 0.0
+            st.session_state.filter_max_mon = 10000.0
+            st.session_state.filter_types = ["whale", "large", "medium", "micro", "swap", "contract"]
+            st.rerun()
+    
+    st.divider()
+    
     # Controls
     col1, col2, col3 = st.columns([2, 1, 1])
     
@@ -339,14 +441,14 @@ def show_dashboard():
     
     with col2:
         if st.button("🔄 Scan Blockchain", type="primary", use_container_width=True):
-            with st.spinner("Scanning Monad blockchain..."):
-                txs, block = scan_blockchain()
+            with st.spinner(f"Scanning {st.session_state.blocks_to_scan} blocks on Monad..."):
+                txs, block = scan_blockchain(st.session_state.blocks_to_scan)
                 if txs:
                     st.session_state.transactions = txs
                     st.session_state.last_block = block
                     st.session_state.scan_count += 1
                     st.session_state.total_value = sum(t["value_mon"] for t in txs)
-                    st.success(f"✅ Found {len(txs)} transactions!")
+                    st.success(f"✅ Found {len(txs)} total transactions!")
                 else:
                     st.warning("No transactions found, try again.")
     
@@ -357,39 +459,61 @@ def show_dashboard():
     
     # Stats
     if st.session_state.transactions:
-        col1, col2, col3, col4, col5 = st.columns(5)
+        # Apply filters
+        filtered_txs = [
+            t for t in st.session_state.transactions
+            if (t["type"] in st.session_state.filter_types and
+                t["value_mon"] >= st.session_state.filter_min_mon and
+                t["value_mon"] <= st.session_state.filter_max_mon)
+        ]
+        
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         
         with col1:
             st.metric("📊 Total TXs", len(st.session_state.transactions))
         with col2:
-            whale_count = len([t for t in st.session_state.transactions if t["type"] in ["whale", "large"]])
-            st.metric("🐋 Large TXs", whale_count)
+            st.metric("🎯 Filtered TXs", len(filtered_txs))
         with col3:
-            swap_count = len([t for t in st.session_state.transactions if t["type"] == "swap"])
-            st.metric("🔄 Swaps", swap_count)
+            whale_count = len([t for t in filtered_txs if t["type"] in ["whale", "large"]])
+            st.metric("🐋 Large TXs", whale_count)
         with col4:
-            st.metric("💰 Total Value", f"{st.session_state.total_value:,.2f} MON")
+            swap_count = len([t for t in filtered_txs if t["type"] == "swap"])
+            st.metric("🔄 Swaps", swap_count)
         with col5:
-            total_profit = sum(t["profit_estimate"] for t in st.session_state.transactions)
+            filtered_value = sum(t["value_mon"] for t in filtered_txs)
+            st.metric("💰 Filtered Value", f"{filtered_value:,.2f} MON")
+        with col6:
+            total_profit = sum(t["profit_estimate"] for t in filtered_txs)
             st.metric("📈 MEV Potential", f"${total_profit:,.2f}")
+        
+        # Show active filter info
+        st.info(f"🔍 **Active Filters:** {st.session_state.filter_min_mon:.4f} - {st.session_state.filter_max_mon:.2f} MON | Types: {', '.join(st.session_state.filter_types)}")
     
-    # Filter tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔥 All", "🐋 Whale", "🔄 Swap", "📄 Contract", "🔹 Micro"])
-    
-    with tab1:
-        show_transactions(st.session_state.transactions)
-    with tab2:
-        whale_txs = [t for t in st.session_state.transactions if t["type"] in ["whale", "large"]]
-        show_transactions(whale_txs)
-    with tab3:
-        swap_txs = [t for t in st.session_state.transactions if t["type"] == "swap"]
-        show_transactions(swap_txs)
-    with tab4:
-        contract_txs = [t for t in st.session_state.transactions if t["type"] == "contract"]
-        show_transactions(contract_txs)
-    with tab5:
-        micro_txs = [t for t in st.session_state.transactions if t["type"] in ["micro", "medium"]]
-        show_transactions(micro_txs)
+    # Filtered transaction display
+    if st.session_state.transactions:
+        filtered_txs = [
+            t for t in st.session_state.transactions
+            if (t["type"] in st.session_state.filter_types and
+                t["value_mon"] >= st.session_state.filter_min_mon and
+                t["value_mon"] <= st.session_state.filter_max_mon)
+        ]
+        
+        # Sort options
+        sort_col1, sort_col2 = st.columns([1, 3])
+        with sort_col1:
+            sort_by = st.selectbox("Sort by:", ["Value (High→Low)", "Value (Low→High)", "Block (Recent)", "MEV Potential"])
+        
+        if sort_by == "Value (High→Low)":
+            filtered_txs = sorted(filtered_txs, key=lambda x: x["value_mon"], reverse=True)
+        elif sort_by == "Value (Low→High)":
+            filtered_txs = sorted(filtered_txs, key=lambda x: x["value_mon"])
+        elif sort_by == "Block (Recent)":
+            filtered_txs = sorted(filtered_txs, key=lambda x: x["block"], reverse=True)
+        elif sort_by == "MEV Potential":
+            filtered_txs = sorted(filtered_txs, key=lambda x: x["profit_estimate"], reverse=True)
+        
+        st.markdown(f"### 📋 Transactions ({len(filtered_txs)} results)")
+        show_transactions(filtered_txs)
     
     if auto_refresh:
         time.sleep(5)
