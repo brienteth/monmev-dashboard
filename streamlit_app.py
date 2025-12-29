@@ -24,12 +24,19 @@ st.set_page_config(
 # ==================== CONFIG ====================
 IS_PRODUCTION = os.getenv("RENDER", "") != "" or os.getenv("STREAMLIT_RUNTIME", "") != ""
 
+# Monad RPC endpoints
+MONAD_RPC_OPTIONS = [
+    "https://testnet-rpc.monad.xyz",  # Monad Testnet
+    "https://rpc.monad.xyz",          # Monad Mainnet (when available)
+    "https://monad-testnet.drpc.org", # DRPC endpoint
+]
+
 if IS_PRODUCTION:
     API_URL = "https://brick3-api.onrender.com"
-    MONAD_RPC = "https://rpc.monad.xyz"
+    MONAD_RPC = os.getenv("MONAD_RPC", MONAD_RPC_OPTIONS[0])
 else:
     API_URL = os.getenv("API_URL", "http://localhost:8000")
-    MONAD_RPC = os.getenv("MONAD_RPC", "http://localhost:8545")
+    MONAD_RPC = os.getenv("MONAD_RPC", MONAD_RPC_OPTIONS[0])
 
 # ==================== BRANDED TECHNOLOGY NAMES ====================
 TECH_NAMES = {
@@ -268,8 +275,157 @@ def stop_all_bots():
     except:
         return False
 
-# ==================== MEV SCANNER ====================
+# ==================== REAL BLOCKCHAIN SCANNER ====================
+# Known DEX Router addresses on Monad
+DEX_ROUTERS = {
+    "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D": "Uniswap V2",
+    "0xE592427A0AEce92De3Edee1F18E0157C05861564": "Uniswap V3",
+    "0x1111111254EEB25477B68fb85Ed929f73A960582": "1inch",
+    "0xDef1C0ded9bec7F1a1670819833240f027b25EfF": "0x Protocol",
+}
+
+# Common swap function signatures
+SWAP_SIGNATURES = {
+    "0x38ed1739": "swapExactTokensForTokens",
+    "0x8803dbee": "swapTokensForExactTokens", 
+    "0x7ff36ab5": "swapExactETHForTokens",
+    "0x18cbafe5": "swapExactTokensForETH",
+    "0xfb3bdb41": "swapETHForExactTokens",
+    "0x5c11d795": "swapExactTokensForTokensSupportingFeeOnTransferTokens",
+    "0xb6f9de95": "swapExactETHForTokensSupportingFeeOnTransferTokens",
+    "0x791ac947": "swapExactTokensForETHSupportingFeeOnTransferTokens",
+    "0x414bf389": "exactInputSingle (V3)",
+    "0xc04b8d59": "exactInput (V3)",
+    "0xdb3e2198": "exactOutputSingle (V3)",
+    "0xf28c0498": "exactOutput (V3)",
+}
+
+LARGE_TRANSFER_THRESHOLD = 10  # MON
+
+def scan_real_blockchain():
+    """Scan real Monad blockchain for MEV opportunities"""
+    w3 = get_web3()
+    if not w3:
+        return []
+    
+    opportunities = []
+    start_time = time.time()
+    
+    try:
+        # Get latest block
+        latest_block = w3.eth.block_number
+        st.session_state.last_block = latest_block
+        
+        # Scan last 3 blocks for transactions
+        for block_offset in range(3):
+            block_num = latest_block - block_offset
+            try:
+                block = w3.eth.get_block(block_num, full_transactions=True)
+                
+                for tx in block.transactions:
+                    opp = analyze_transaction(tx, block_num, w3)
+                    if opp:
+                        opportunities.append(opp)
+                        
+            except Exception as e:
+                continue
+        
+        # Record latency
+        latency = (time.time() - start_time) * 1000
+        st.session_state.latency_history.append({
+            "time": datetime.now().isoformat(),
+            "latency_ms": latency,
+            "source": "blockchain"
+        })
+        st.session_state.latency_history = st.session_state.latency_history[-100:]
+        
+    except Exception as e:
+        pass
+    
+    return opportunities
+
+def analyze_transaction(tx, block_num, w3):
+    """Analyze a transaction for MEV opportunities"""
+    try:
+        tx_hash = tx.hash.hex() if hasattr(tx.hash, 'hex') else str(tx.hash)
+        
+        # Skip if already seen
+        if tx_hash in st.session_state.seen_tx_hashes:
+            return None
+        
+        to_address = tx.get('to', '')
+        if to_address:
+            to_address = to_address.lower() if isinstance(to_address, str) else to_address.hex().lower() if hasattr(to_address, 'hex') else str(to_address).lower()
+        
+        value_wei = tx.get('value', 0)
+        value_mon = float(w3.from_wei(value_wei, 'ether')) if value_wei else 0
+        
+        input_data = tx.get('input', '0x')
+        if hasattr(input_data, 'hex'):
+            input_data = input_data.hex()
+        
+        func_sig = input_data[:10] if len(input_data) >= 10 else ''
+        
+        mev_type = None
+        estimated_profit = 0
+        confidence = 0.5
+        
+        # Check for DEX swaps (potential sandwich targets)
+        if func_sig in SWAP_SIGNATURES:
+            mev_type = "sandwich"
+            # Estimate profit based on transaction value
+            if value_mon > 100:
+                estimated_profit = value_mon * 0.005  # 0.5% potential profit
+                confidence = 0.85
+            elif value_mon > 10:
+                estimated_profit = value_mon * 0.003
+                confidence = 0.7
+            else:
+                estimated_profit = value_mon * 0.001
+                confidence = 0.5
+        
+        # Check for large native transfers
+        elif value_mon >= LARGE_TRANSFER_THRESHOLD:
+            mev_type = "large_transfer"
+            estimated_profit = value_mon * 0.001  # Backrun opportunity
+            confidence = 0.6 if value_mon > 100 else 0.4
+        
+        # Check for contract interactions
+        elif len(input_data) > 10 and to_address:
+            mev_type = "contract"
+            estimated_profit = 5  # Base estimate
+            confidence = 0.3
+        
+        # Simple transfers
+        elif value_mon > 0:
+            mev_type = "transfer"
+            estimated_profit = 0.1
+            confidence = 0.2
+        
+        if mev_type and estimated_profit > 0:
+            # Convert to USD (assuming MON = $1.50)
+            profit_usd = estimated_profit * 1.5
+            
+            return {
+                "type": mev_type,
+                "tx_hash": tx_hash if tx_hash.startswith('0x') else f"0x{tx_hash}",
+                "timestamp": datetime.now().isoformat(),
+                "block": block_num,
+                "estimated_profit_usd": round(profit_usd, 2),
+                "confidence": round(confidence, 2),
+                "value_mon": round(value_mon, 4),
+                "to": to_address[:20] + "..." if to_address and len(to_address) > 20 else to_address,
+                "func": SWAP_SIGNATURES.get(func_sig, "unknown"),
+                "real": True  # Mark as real transaction
+            }
+        
+    except Exception as e:
+        pass
+    
+    return None
+
 def scan_blockchain_api():
+    """Scan via API as fallback"""
     start = time.time()
     try:
         response = requests.get(
@@ -294,22 +450,33 @@ def scan_blockchain_api():
         pass
     return []
 
-def generate_demo_opportunity():
-    if random.random() > 0.3:
+def scan_pending_transactions():
+    """Scan pending transactions from mempool (if available)"""
+    w3 = get_web3()
+    if not w3:
         return []
     
-    types = ["sandwich", "large_transfer", "contract", "transfer"]
-    mev_type = random.choices(types, weights=[0.3, 0.2, 0.3, 0.2])[0]
-    tx_hash = "0x" + "".join(random.choices("0123456789abcdef", k=64))
+    opportunities = []
+    try:
+        # Try to get pending transactions
+        pending_filter = w3.eth.filter('pending')
+        pending_txs = pending_filter.get_new_entries()
+        
+        for tx_hash in pending_txs[:20]:  # Limit to 20
+            try:
+                tx = w3.eth.get_transaction(tx_hash)
+                opp = analyze_transaction(tx, "pending", w3)
+                if opp:
+                    opp["block"] = "⏳ Pending"
+                    opportunities.append(opp)
+            except:
+                continue
+                
+    except Exception as e:
+        # Pending filter may not be supported
+        pass
     
-    return [{
-        "type": mev_type,
-        "tx_hash": tx_hash,
-        "timestamp": datetime.now().isoformat(),
-        "block": random.randint(10000000, 15000000),
-        "estimated_profit_usd": random.uniform(10, 500),
-        "confidence": random.uniform(0.5, 0.95)
-    }]
+    return opportunities
 
 # ==================== LOGIN PAGE ====================
 def show_login_page():
@@ -535,15 +702,38 @@ def show_dashboard():
 
         st.markdown("---")
 
+        # Blockchain connection status
+        w3 = get_web3()
+        if w3 and w3.is_connected():
+            st.markdown("""
+            <div style="background: rgba(76, 175, 80, 0.1); border: 1px solid #4caf50; border-radius: 8px; padding: 8px; margin-bottom: 10px; text-align: center;">
+                <span style="color: #4caf50;">🔗 Connected to Monad RPC - Real Blockchain Data</span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background: rgba(255, 152, 0, 0.1); border: 1px solid #ff9800; border-radius: 8px; padding: 8px; margin-bottom: 10px; text-align: center;">
+                <span style="color: #ff9800;">⚠️ RPC Not Connected - Using API Data</span>
+            </div>
+            """, unsafe_allow_html=True)
+
         # Scan if monitoring
         if st.session_state.monitoring:
             current_time = time.time()
             if current_time - st.session_state.last_scan_time >= 3:
                 st.session_state.last_scan_time = current_time
                 
-                new_opps = scan_blockchain_api()
+                # Try real blockchain first
+                new_opps = []
+                if w3 and w3.is_connected():
+                    new_opps = scan_real_blockchain()
+                    # Also try pending transactions
+                    pending_opps = scan_pending_transactions()
+                    new_opps.extend(pending_opps)
+                
+                # Fallback to API if no real data
                 if not new_opps:
-                    new_opps = generate_demo_opportunity()
+                    new_opps = scan_blockchain_api()
                 
                 if new_opps:
                     unique_opps = []
@@ -569,12 +759,19 @@ def show_dashboard():
         if not filtered_opps:
             st.info("🔍 No MEV opportunities found yet. Start monitoring to detect new opportunities!")
             
-            if st.button("🔍 Scan Now"):
-                new_opps = scan_blockchain_api()
+            if st.button("🔍 Scan Blockchain Now"):
+                w3 = get_web3()
+                new_opps = []
+                if w3 and w3.is_connected():
+                    new_opps = scan_real_blockchain()
                 if not new_opps:
-                    new_opps = generate_demo_opportunity()
+                    new_opps = scan_blockchain_api()
                 if new_opps:
-                    st.session_state.opportunities.extend(new_opps)
+                    for opp in new_opps:
+                        tx_hash = opp.get("tx_hash", "")
+                        if tx_hash not in st.session_state.seen_tx_hashes:
+                            st.session_state.seen_tx_hashes.add(tx_hash)
+                            st.session_state.opportunities.append(opp)
                     st.rerun()
         else:
             for opp in filtered_opps[:20]:
@@ -584,20 +781,29 @@ def show_dashboard():
                 confidence = opp.get("confidence", 0)
                 tx_hash = opp.get("tx_hash", "N/A")
                 block = opp.get("block", "N/A")
+                is_real = opp.get("real", False)
+                value_mon = opp.get("value_mon", 0)
+                func = opp.get("func", "")
                 
                 with st.container():
                     col1, col2, col3, col4, col5 = st.columns([2, 3, 1.5, 1.5, 1])
                     
                     with col1:
-                        st.markdown(f"**{emoji} {mev_type.upper()}**")
-                        st.caption(f"Block: {block}")
+                        real_badge = "🔴 LIVE" if is_real else ""
+                        st.markdown(f"**{emoji} {mev_type.upper()}** {real_badge}")
+                        block_display = f"Block: {block:,}" if isinstance(block, int) else f"Block: {block}"
+                        st.caption(block_display)
                     
                     with col2:
-                        short_hash = f"{tx_hash[:12]}...{tx_hash[-8:]}" if len(tx_hash) > 20 else tx_hash
+                        short_hash = f"{tx_hash[:12]}...{tx_hash[-8:]}" if len(str(tx_hash)) > 20 else tx_hash
                         st.markdown(f"[🔗 {short_hash}](https://monadexplorer.com/tx/{tx_hash})")
+                        if value_mon > 0:
+                            st.caption(f"Value: {value_mon:.4f} MON")
                     
                     with col3:
                         st.markdown(f"**💰 {format_profit(profit)}**")
+                        if func and func != "unknown":
+                            st.caption(f"📝 {func[:15]}...")
                     
                     with col4:
                         conf_color = "#4caf50" if confidence >= 0.7 else "#ff9800" if confidence >= 0.5 else "#f44336"
