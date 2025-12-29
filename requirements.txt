@@ -24,10 +24,14 @@ pandas>=2.0.0
 asyncio>=3.4.3
 aiohttp>=3.9.1
 
+# OpaMev Infrastructure Integration
+redis>=5.0.1
+aioquic>=0.9.25          # QUIC/HTTP3 support
+hypercorn>=0.16.0        # HTTP/3 capable ASGI server
+
 # Utilities
 python-multipart>=0.0.6
 
 # Optional: Database (production için)
 # sqlalchemy>=2.0.23
 # asyncpg>=0.29.0
-# redis>=5.0.1

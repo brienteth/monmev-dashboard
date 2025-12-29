@@ -29,18 +29,50 @@ import random
 
 load_dotenv()
 
+# ==================== OPAMEV INFRASTRUCTURE ====================
+# Import advanced infrastructure from OpaMev stack
+try:
+    from infrastructure_config import (
+        get_redis_cache, 
+        get_quic_gateway, 
+        get_rpc_client,
+        get_metrics_collector,
+        check_infrastructure_status,
+        InfrastructureConfig
+    )
+    INFRA_AVAILABLE = True
+    print("✅ OpaMev Infrastructure loaded (QUIC, Redis, DAG Mempool)")
+except ImportError:
+    INFRA_AVAILABLE = False
+    print("⚠️ OpaMev Infrastructure not available, using standard mode")
+
 # ==================== CONFIG ====================
-MONAD_RPC = os.getenv("MONAD_RPC", "https://rpc.monad.xyz")  # Monad Mainnet
+# Use local RPC proxy if available (for caching and lower latency)
+MONAD_RPC_LOCAL = os.getenv("MONAD_RPC_LOCAL", "http://localhost:8545")
+MONAD_RPC_REMOTE = os.getenv("MONAD_RPC", "https://rpc.monad.xyz")
+USE_LOCAL_RPC = os.getenv("USE_LOCAL_RPC", "true").lower() == "true"
+MONAD_RPC = MONAD_RPC_LOCAL if USE_LOCAL_RPC else MONAD_RPC_REMOTE
+
 CHAIN_ID = 143  # Monad Mainnet
 REFRESH_INTERVAL = 2  # seconds
 DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"  # Demo mode for testing
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"  # Toggle API key auth
 
-# Web3 Connection
+# Feature flags for advanced features
+USE_QUIC = os.getenv("USE_QUIC", "true").lower() == "true"
+USE_REDIS_CACHE = os.getenv("USE_REDIS", "true").lower() == "true"
+USE_DAG_MEMPOOL = os.getenv("USE_DAG_MEMPOOL", "true").lower() == "true"
+
+# Web3 Connection (prefer local RPC proxy)
 try:
     w3 = Web3(Web3.HTTPProvider(MONAD_RPC, request_kwargs={'timeout': 30}))
 except:
     w3 = None
+
+# Initialize infrastructure components
+redis_cache = get_redis_cache() if INFRA_AVAILABLE and USE_REDIS_CACHE else None
+quic_gateway = get_quic_gateway() if INFRA_AVAILABLE and USE_QUIC else None
+metrics_collector = get_metrics_collector() if INFRA_AVAILABLE else None
 
 # ==================== UNLIMITED API KEYS ====================
 API_KEYS = {
@@ -443,12 +475,55 @@ def root():
 @app.get("/health", tags=["Health"])
 def health_check():
     """Health check endpoint"""
-    return {
+    response = {
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "rpc_connected": w3.is_connected() if w3 else False,
         "monitoring_active": monitoring_active,
         "opportunities_count": len(opportunities_store)
+    }
+    
+    # Add infrastructure status if available
+    if INFRA_AVAILABLE:
+        response["infrastructure"] = {
+            "opamev_stack": True,
+            "redis": redis_cache.connected if redis_cache else False,
+            "quic_gateway": USE_QUIC,
+            "dag_mempool": USE_DAG_MEMPOOL,
+            "local_rpc": USE_LOCAL_RPC
+        }
+    
+    return response
+
+
+@app.get("/api/v1/infrastructure/status", tags=["Infrastructure"])
+async def get_infrastructure_status(api_key: str = Depends(validate_api_key)):
+    """
+    Get detailed infrastructure status
+    
+    Returns status of all OpaMev infrastructure components:
+    - QUIC Gateway (HTTP/3 ultra-low latency)
+    - Redis Cache
+    - DAG Mempool
+    - Local Monad RPC Proxy
+    """
+    if not INFRA_AVAILABLE:
+        return {
+            "success": False,
+            "error": "OpaMev infrastructure not available",
+            "message": "Running in standard mode without advanced features"
+        }
+    
+    status = await check_infrastructure_status()
+    return {
+        "success": True,
+        "infrastructure": status,
+        "features": {
+            "quic_enabled": USE_QUIC,
+            "redis_enabled": USE_REDIS_CACHE,
+            "dag_mempool_enabled": USE_DAG_MEMPOOL,
+            "local_rpc_enabled": USE_LOCAL_RPC
+        }
     }
 
 @app.get("/api/v1/opportunities", tags=["MEV"])
