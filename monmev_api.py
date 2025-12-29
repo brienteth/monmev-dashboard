@@ -696,6 +696,285 @@ def fastlane_simulate(
         "atlas_contract": "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C"
     }
 
+# ==================== BOT ENGINE ENDPOINTS ====================
+
+# Import bot systems
+try:
+    from mev_bot_engine import get_bot_engine, BotType
+    from transaction_simulator import get_simulator
+    from revenue_distribution import get_revenue_system
+    BOT_SYSTEMS_AVAILABLE = True
+except ImportError:
+    BOT_SYSTEMS_AVAILABLE = False
+
+@app.get("/api/v1/bots/status", tags=["Bots"])
+def get_bots_status(api_key: str = Depends(validate_api_key)):
+    """Get status of all MEV bots"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Bot systems not available"}
+    
+    engine = get_bot_engine()
+    return {
+        "success": True,
+        "bots": engine.get_bot_status()
+    }
+
+@app.post("/api/v1/bots/start/{bot_type}", tags=["Bots"])
+def start_bot(bot_type: str, api_key: str = Depends(validate_api_key)):
+    """Start a specific bot (sandwich, arbitrage, liquidation, backrun)"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Bot systems not available"}
+    
+    try:
+        engine = get_bot_engine()
+        bt = BotType(bot_type)
+        result = engine.start_bot(bt)
+        return result
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid bot type: {bot_type}")
+
+@app.post("/api/v1/bots/stop/{bot_type}", tags=["Bots"])
+def stop_bot(bot_type: str, api_key: str = Depends(validate_api_key)):
+    """Stop a specific bot"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Bot systems not available"}
+    
+    try:
+        engine = get_bot_engine()
+        bt = BotType(bot_type)
+        result = engine.stop_bot(bt)
+        return result
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid bot type: {bot_type}")
+
+@app.post("/api/v1/bots/start-all", tags=["Bots"])
+def start_all_bots(api_key: str = Depends(validate_api_key)):
+    """Start all enabled bots"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Bot systems not available"}
+    
+    engine = get_bot_engine()
+    return engine.start_all_bots()
+
+@app.post("/api/v1/bots/stop-all", tags=["Bots"])
+def stop_all_bots(api_key: str = Depends(validate_api_key)):
+    """Stop all bots"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Bot systems not available"}
+    
+    engine = get_bot_engine()
+    return engine.stop_all_bots()
+
+@app.get("/api/v1/bots/executions", tags=["Bots"])
+def get_bot_executions(
+    limit: int = Query(50, ge=1, le=500),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get bot execution history"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Bot systems not available"}
+    
+    engine = get_bot_engine()
+    return {
+        "success": True,
+        "executions": engine.get_executions(limit)
+    }
+
+@app.put("/api/v1/bots/config/{bot_type}", tags=["Bots"])
+def update_bot_config(
+    bot_type: str,
+    min_profit_usd: float = Query(None),
+    max_gas_gwei: float = Query(None),
+    slippage_percent: float = Query(None),
+    enabled: bool = Query(None),
+    api_key: str = Depends(validate_api_key)
+):
+    """Update bot configuration"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Bot systems not available"}
+    
+    try:
+        engine = get_bot_engine()
+        bt = BotType(bot_type)
+        
+        updates = {}
+        if min_profit_usd is not None:
+            updates["min_profit_usd"] = min_profit_usd
+        if max_gas_gwei is not None:
+            updates["max_gas_gwei"] = max_gas_gwei
+        if slippage_percent is not None:
+            updates["slippage_percent"] = slippage_percent
+        if enabled is not None:
+            updates["enabled"] = enabled
+        
+        return engine.update_bot_config(bt, **updates)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid bot type: {bot_type}")
+
+# ==================== SIMULATION ENDPOINTS ====================
+
+@app.post("/api/v1/simulate/sandwich", tags=["Simulation"])
+def simulate_sandwich(
+    victim_value_mon: float = Query(..., description="Victim swap value in MON"),
+    frontrun_amount_mon: float = Query(None, description="Frontrun amount (optional, auto-calculated if not provided)"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Simulate a sandwich attack"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Simulation not available"}
+    
+    sim = get_simulator()
+    
+    # Auto-calculate optimal frontrun if not provided
+    if frontrun_amount_mon is None:
+        optimal = sim.calculate_optimal_frontrun_amount(victim_value_mon, victim_value_mon)
+        frontrun_amount_mon = optimal["optimal_amount_mon"]
+    
+    result = sim.simulate_sandwich(
+        victim_tx={"value": int(victim_value_mon * 1e18), "gasPrice": 50 * 10**9},
+        frontrun_amount_mon=frontrun_amount_mon
+    )
+    
+    return {
+        "success": result.success,
+        "simulation": {
+            "gross_profit_mon": result.gross_profit_mon,
+            "gas_cost_mon": result.gas_cost_mon,
+            "net_profit_mon": result.net_profit_mon,
+            "net_profit_usd": result.net_profit_usd,
+            "confidence": result.confidence,
+            "price_impact_percent": result.price_impact_percent,
+            "execution_path": result.execution_path,
+            "warnings": result.warnings,
+            "details": result.details
+        }
+    }
+
+@app.post("/api/v1/simulate/arbitrage", tags=["Simulation"])
+def simulate_arbitrage(
+    amount_in_mon: float = Query(..., description="Starting amount in MON"),
+    hops: int = Query(3, ge=2, le=5, description="Number of hops"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Simulate an arbitrage trade"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Simulation not available"}
+    
+    sim = get_simulator()
+    
+    # Generate token path
+    token_path = [f"0xToken{i}" for i in range(hops + 1)]
+    
+    result = sim.simulate_arbitrage(token_path, amount_in_mon)
+    
+    return {
+        "success": result.success,
+        "simulation": {
+            "gross_profit_mon": result.gross_profit_mon,
+            "gas_cost_mon": result.gas_cost_mon,
+            "net_profit_mon": result.net_profit_mon,
+            "net_profit_usd": result.net_profit_usd,
+            "confidence": result.confidence,
+            "execution_path": result.execution_path,
+            "warnings": result.warnings,
+            "details": result.details
+        }
+    }
+
+# ==================== REVENUE ENDPOINTS ====================
+
+@app.get("/api/v1/revenue/summary", tags=["Revenue"])
+def get_revenue_summary(api_key: str = Depends(validate_api_key)):
+    """Get revenue distribution summary"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Revenue system not available"}
+    
+    system = get_revenue_system()
+    return {
+        "success": True,
+        "revenue": system.get_summary()
+    }
+
+@app.get("/api/v1/revenue/stats", tags=["Revenue"])
+def get_revenue_stats(
+    period: str = Query("all_time", description="Period: hourly, daily, weekly, monthly, all_time"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get revenue statistics for a period"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Revenue system not available"}
+    
+    system = get_revenue_system()
+    from dataclasses import asdict
+    stats = system.get_stats(period)
+    
+    return {
+        "success": True,
+        "stats": asdict(stats)
+    }
+
+@app.get("/api/v1/revenue/pending", tags=["Revenue"])
+def get_pending_revenue(api_key: str = Depends(validate_api_key)):
+    """Get pending (accumulated but not distributed) revenue"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Revenue system not available"}
+    
+    system = get_revenue_system()
+    return {
+        "success": True,
+        "pending": system.get_pending_amount()
+    }
+
+@app.get("/api/v1/revenue/distribution-history", tags=["Revenue"])
+def get_distribution_history(
+    limit: int = Query(50, ge=1, le=500),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get revenue distribution history"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Revenue system not available"}
+    
+    system = get_revenue_system()
+    return {
+        "success": True,
+        "distributions": system.get_distribution_history(limit)
+    }
+
+@app.get("/api/v1/revenue/estimate-apy", tags=["Revenue"])
+def estimate_apy_boost(
+    daily_mev_volume_usd: float = Query(10000, description="Daily MEV capture volume in USD"),
+    tvl_usd: float = Query(10000000, description="Total Value Locked in shMON"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Estimate APY boost from MEV earnings"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Revenue system not available"}
+    
+    system = get_revenue_system()
+    estimate = system.estimate_apy_boost(daily_mev_volume_usd, tvl_usd)
+    
+    return {
+        "success": True,
+        "estimate": estimate
+    }
+
+@app.post("/api/v1/revenue/calculate", tags=["Revenue"])
+def calculate_distribution(
+    profit_mon: float = Query(..., description="Profit amount in MON"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Calculate revenue distribution for a given profit"""
+    if not BOT_SYSTEMS_AVAILABLE:
+        return {"success": False, "error": "Revenue system not available"}
+    
+    system = get_revenue_system()
+    distribution = system.calculate_distribution(profit_mon)
+    
+    return {
+        "success": True,
+        "distribution": distribution
+    }
+
 @app.get("/api/v1/fastlane/demo", tags=["FastLane"])
 def fastlane_demo():
     """FastLane demo endpoint - No API key required for testing"""
