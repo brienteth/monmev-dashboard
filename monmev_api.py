@@ -628,6 +628,101 @@ def fastlane_quote(
         "recommendation": "Enable FastLane for MEV protection" if total_mev > 0.01 else "MEV protection optional"
     }
 
+@app.get("/api/v1/fastlane/stats", tags=["FastLane"])
+def fastlane_stats(api_key: str = Depends(validate_api_key)):
+    """FastLane MEV statistics for shMON integration"""
+    # Calculate stats from opportunities
+    sandwich_opps = [o for o in opportunities_store if o["type"] == "sandwich"]
+    total_mev_captured = sum(o["potential_profit_usd"] for o in sandwich_opps)
+    
+    return {
+        "success": True,
+        "partnership": "Brick3 x FastLane",
+        "stats": {
+            "total_mev_opportunities": len(sandwich_opps),
+            "total_mev_captured_usd": round(total_mev_captured, 2),
+            "avg_mev_per_block": round(total_mev_captured / max(1, stats_store["total_opportunities"]) * 10, 2),
+            "last_24h_volume": round(total_mev_captured * 24, 2),
+            "current_block": stats_store["last_block"]
+        },
+        "shmon_integration": {
+            "estimated_apy_boost": f"+{round(total_mev_captured * 0.001, 2)}%",
+            "revenue_share": {
+                "shmon_holders": "70%",
+                "brick3": "20%",
+                "validators": "10%"
+            }
+        },
+        "endpoints_available": [
+            "/api/v1/fastlane/info",
+            "/api/v1/fastlane/quote",
+            "/api/v1/fastlane/stats",
+            "/api/v1/fastlane/simulate",
+            "/api/v1/opportunities"
+        ]
+    }
+
+@app.post("/api/v1/fastlane/simulate", tags=["FastLane"])
+def fastlane_simulate(
+    tx_hash: str = Query(None, description="Transaction hash to simulate"),
+    swap_amount: float = Query(100, description="Swap amount in MON"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Simulate MEV extraction for a swap transaction"""
+    # Simulated MEV extraction analysis
+    base_mev = swap_amount * 0.005  # 0.5% base MEV
+    sandwich_profit = swap_amount * 0.003  # 0.3% sandwich
+    backrun_profit = swap_amount * 0.002  # 0.2% backrun
+    
+    total_extractable = base_mev + sandwich_profit + backrun_profit
+    
+    return {
+        "success": True,
+        "simulation": {
+            "tx_hash": tx_hash or f"0x{uuid.uuid4().hex}",
+            "swap_amount_mon": swap_amount,
+            "extractable_mev": {
+                "sandwich": round(sandwich_profit, 4),
+                "backrun": round(backrun_profit, 4),
+                "total": round(total_extractable, 4)
+            },
+            "with_protection": {
+                "user_savings": round(total_extractable * 0.7, 4),
+                "protocol_share": round(total_extractable * 0.2, 4),
+                "validator_share": round(total_extractable * 0.1, 4)
+            },
+            "recommendation": "HIGH_VALUE_TARGET" if swap_amount > 500 else "STANDARD"
+        },
+        "atlas_contract": "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C"
+    }
+
+@app.get("/api/v1/fastlane/demo", tags=["FastLane"])
+def fastlane_demo():
+    """FastLane demo endpoint - No API key required for testing"""
+    return {
+        "success": True,
+        "message": "Welcome to Brick3 MEV API Demo",
+        "partnership": "Brick3 x FastLane x shMON",
+        "demo_data": {
+            "sample_opportunities": opportunities_store[:5] if opportunities_store else [],
+            "current_stats": {
+                "total_opportunities": stats_store["total_opportunities"],
+                "total_profit_usd": round(stats_store["total_profit_usd"], 2),
+                "last_block": stats_store["last_block"]
+            }
+        },
+        "api_access": {
+            "demo_key": "bk3_fastlane_partner",
+            "docs": "/docs",
+            "dashboard": "https://brick3.streamlit.app"
+        },
+        "revenue_model": {
+            "shmon_holders": "70% of MEV earnings",
+            "brick3": "20% of MEV earnings",
+            "validators": "10% of MEV earnings"
+        }
+    }
+
 # ==================== WEBSOCKET ====================
 
 @app.websocket("/ws/opportunities")
