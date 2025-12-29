@@ -6,9 +6,36 @@ Accurate profit calculation for MEV opportunities
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
-from web3 import Web3
 import json
 import os
+
+# Lazy import for web3
+Web3 = None
+def get_web3_module():
+    global Web3
+    if Web3 is None:
+        try:
+            from web3 import Web3 as W3
+            Web3 = W3
+        except ImportError:
+            # Fallback - create mock
+            class MockWeb3:
+                @staticmethod
+                def to_wei(amount, unit):
+                    if unit == 'ether':
+                        return int(amount * 10**18)
+                    elif unit == 'gwei':
+                        return int(amount * 10**9)
+                    return int(amount)
+                @staticmethod
+                def from_wei(amount, unit):
+                    if unit == 'ether':
+                        return amount / 10**18
+                    elif unit == 'gwei':
+                        return amount / 10**9
+                    return amount
+            Web3 = MockWeb3
+    return Web3
 
 @dataclass
 class SimulationResult:
@@ -32,7 +59,11 @@ class TransactionSimulator:
     
     def __init__(self, rpc_url: str = None):
         self.rpc_url = rpc_url or os.getenv("MONAD_RPC", "https://rpc.monad.xyz")
-        self.w3 = Web3(Web3.HTTPProvider(self.rpc_url, request_kwargs={'timeout': 30}))
+        W3 = get_web3_module()
+        try:
+            self.w3 = W3(W3.HTTPProvider(self.rpc_url, request_kwargs={'timeout': 30}))
+        except:
+            self.w3 = None
         
         # Price oracle (simplified - use Chainlink in production)
         self.prices = {
@@ -441,11 +472,12 @@ if __name__ == "__main__":
     print("=" * 50)
     
     sim = get_simulator()
+    W3 = get_web3_module()
     
     # Test sandwich simulation
     print("\n🥪 Sandwich Simulation (100 MON victim):")
     result = sim.simulate_sandwich(
-        victim_tx={"value": Web3.to_wei(100, 'ether'), "gasPrice": 50 * 10**9},
+        victim_tx={"value": W3.to_wei(100, 'ether') if W3 else 100*10**18, "gasPrice": 50 * 10**9},
         frontrun_amount_mon=50
     )
     print(f"  Success: {result.success}")

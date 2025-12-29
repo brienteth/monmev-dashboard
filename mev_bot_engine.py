@@ -14,13 +14,23 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 from decimal import Decimal
-from web3 import Web3
-from web3.exceptions import TransactionNotFound
 import os
 from datetime import datetime
 import hashlib
 import threading
 from collections import deque
+
+# Lazy import for web3 to avoid Python 3.14 compatibility issues
+Web3 = None
+def get_web3_module():
+    global Web3
+    if Web3 is None:
+        try:
+            from web3 import Web3 as W3
+            Web3 = W3
+        except ImportError:
+            Web3 = None
+    return Web3
 
 # ==================== CONFIGURATION ====================
 
@@ -118,13 +128,23 @@ class MEVBotEngine:
         self.rpc_url = rpc_url or os.getenv("MONAD_RPC", "https://rpc.monad.xyz")
         self.private_key = private_key or os.getenv("BOT_PRIVATE_KEY")
         
-        # Initialize Web3
-        self.w3 = Web3(Web3.HTTPProvider(self.rpc_url, request_kwargs={'timeout': 30}))
+        # Initialize Web3 (lazy)
+        W3 = get_web3_module()
+        try:
+            if W3:
+                self.w3 = W3(W3.HTTPProvider(self.rpc_url, request_kwargs={'timeout': 30}))
+            else:
+                self.w3 = None
+        except:
+            self.w3 = None
         
         # Bot wallet
-        if self.private_key:
-            self.account = self.w3.eth.account.from_key(self.private_key)
-            self.bot_address = self.account.address
+        if self.private_key and self.w3:
+            try:
+                self.account = self.w3.eth.account.from_key(self.private_key)
+                self.bot_address = self.account.address
+            except:
+                self.bot_address = None
         else:
             self.bot_address = None
             
