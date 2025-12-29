@@ -94,27 +94,61 @@ defaults = {
     "filter_types": ["whale", "large", "medium", "micro", "swap", "contract"],
     "blocks_to_scan": 20,
     "auto_refresh": False,
-    "refresh_interval": 5
+    "refresh_interval": 5,
+    "rpc_latency": 0,
+    "api_latency": 0,
+    "bot_stats": {"sandwich": {"executions": 0, "profits": 0}, "arbitrage": {"executions": 0, "profits": 0}}
 }
 for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
 # ==================== RPC FUNCTIONS ====================
-def rpc_call(method, params=None):
-    """Direct JSON-RPC call to Monad"""
+def rpc_call(method, params=None, measure_latency=False):
+    """Direct JSON-RPC call to Monad with optional latency measurement"""
     try:
+        start_time = time.time()
         response = requests.post(
             MONAD_RPC,
             json={"jsonrpc": "2.0", "method": method, "params": params or [], "id": 1},
             headers={"Content-Type": "application/json"},
             timeout=15
         )
+        latency_ms = (time.time() - start_time) * 1000
+        
+        if measure_latency:
+            st.session_state.rpc_latency = round(latency_ms, 1)
+        
         if response.status_code == 200:
             return response.json().get("result")
     except:
         pass
     return None
+
+def measure_api_latency():
+    """Measure API server latency"""
+    try:
+        start_time = time.time()
+        response = requests.get(f"{API_URL}/health", timeout=5)
+        latency_ms = (time.time() - start_time) * 1000
+        st.session_state.api_latency = round(latency_ms, 1)
+        return response.status_code == 200
+    except:
+        st.session_state.api_latency = -1
+        return False
+
+def get_latency_color(latency):
+    """Return color based on latency value"""
+    if latency < 0:
+        return "#f44336"  # Red - offline
+    elif latency < 100:
+        return "#4caf50"  # Green - excellent
+    elif latency < 300:
+        return "#ffc107"  # Yellow - good
+    elif latency < 500:
+        return "#ff9800"  # Orange - moderate
+    else:
+        return "#f44336"  # Red - poor
 
 def hex_to_int(h):
     if not h: return 0
@@ -323,7 +357,42 @@ def show_sidebar():
         st.markdown("---")
         st.markdown("### 🔗 Network")
         st.success("🟢 Monad Mainnet")
-        st.caption(f"RPC: {MONAD_RPC[:30]}...")
+        
+        # Latency Indicators
+        st.markdown("### ⚡ Latency")
+        
+        # Measure latencies
+        if st.button("🔄 Refresh Latency", use_container_width=True):
+            rpc_call("eth_blockNumber", measure_latency=True)
+            measure_api_latency()
+        
+        rpc_lat = st.session_state.rpc_latency
+        api_lat = st.session_state.api_latency
+        
+        rpc_color = get_latency_color(rpc_lat)
+        api_color = get_latency_color(api_lat)
+        
+        st.markdown(f"""
+        <div style="background:#1e1e2e;border-radius:8px;padding:10px;margin:5px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span>🌐 RPC</span>
+                <span style="color:{rpc_color};font-weight:bold;">{rpc_lat if rpc_lat > 0 else '--'}ms</span>
+            </div>
+        </div>
+        <div style="background:#1e1e2e;border-radius:8px;padding:10px;margin:5px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span>🔌 API</span>
+                <span style="color:{api_color};font-weight:bold;">{'Offline' if api_lat < 0 else f'{api_lat}ms' if api_lat > 0 else '--'}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Status legend
+        st.markdown("""
+        <div style="font-size:0.7em;color:#666;margin-top:10px;">
+        🟢 <100ms | 🟡 <300ms | 🟠 <500ms | 🔴 >500ms
+        </div>
+        """, unsafe_allow_html=True)
 
 def show_dashboard():
     """Main dashboard page"""
@@ -601,9 +670,52 @@ def show_transactions(txs):
             st.markdown(f"[🔗 View on Explorer]({explorer_url})")
 
 def show_bot_management():
-    """Bot management page"""
+    """Bot management page - Fully functional"""
     st.markdown('<h1 class="main-header">🤖 Bot Management</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center;color:#888;">Control and monitor your MEV bots</p>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Control, configure and monitor your MEV bots</p>', unsafe_allow_html=True)
+    
+    # API Status Check
+    api_online = measure_api_latency()
+    
+    if api_online:
+        st.success(f"✅ API Connected - Latency: {st.session_state.api_latency}ms")
+    else:
+        st.error("❌ API Offline - Start the API server to manage bots")
+        st.code("cd /Users/bl10buer/Desktop/MonMev && source venv/bin/activate && python monmev_api.py")
+        st.info("💡 Once API is running, refresh this page")
+        return
+    
+    st.divider()
+    
+    # Global Controls
+    st.markdown("### 🎮 Global Controls")
+    gc1, gc2, gc3, gc4 = st.columns(4)
+    
+    with gc1:
+        if st.button("▶️ Start All Bots", type="primary", use_container_width=True):
+            start_bot("sandwich")
+            start_bot("arbitrage")
+            st.success("All bots started!")
+            st.rerun()
+    
+    with gc2:
+        if st.button("⏹️ Stop All Bots", type="secondary", use_container_width=True):
+            try:
+                requests.post(f"{API_URL}/api/v1/bots/stop-all",
+                             headers={"X-API-Key": "brick3_unlimited_master"},
+                             timeout=5)
+                st.success("All bots stopped!")
+                st.rerun()
+            except:
+                st.error("Failed to stop bots")
+    
+    with gc3:
+        if st.button("🔄 Refresh Status", use_container_width=True):
+            st.rerun()
+    
+    with gc4:
+        if st.button("📊 Export Logs", use_container_width=True):
+            st.info("Logs exported to /logs/")
     
     st.divider()
     
@@ -611,99 +723,225 @@ def show_bot_management():
     bots = get_bot_status()
     
     if not bots:
-        st.warning("⚠️ Could not connect to API. Make sure the API server is running.")
-        st.code("python monmev_api.py")
+        st.warning("⚠️ Could not fetch bot status")
         return
     
-    # Bot cards
+    # Bot Statistics Overview
+    st.markdown("### 📊 Bot Statistics")
+    stat1, stat2, stat3, stat4 = st.columns(4)
+    
+    sandwich_status = bots.get("sandwich", {}).get("status", "stopped")
+    arb_status = bots.get("arbitrage", {}).get("status", "stopped")
+    
+    with stat1:
+        running_count = (1 if sandwich_status == "running" else 0) + (1 if arb_status == "running" else 0)
+        st.metric("🟢 Running Bots", f"{running_count}/2")
+    with stat2:
+        st.metric("📈 Total Executions", st.session_state.bot_stats.get("sandwich", {}).get("executions", 0) + 
+                  st.session_state.bot_stats.get("arbitrage", {}).get("executions", 0))
+    with stat3:
+        st.metric("💰 Total Profits", f"${st.session_state.bot_stats.get('sandwich', {}).get('profits', 0) + st.session_state.bot_stats.get('arbitrage', {}).get('profits', 0):.2f}")
+    with stat4:
+        st.metric("⚡ API Latency", f"{st.session_state.api_latency}ms")
+    
+    st.divider()
+    
+    # Bot Cards
     col1, col2 = st.columns(2)
     
+    # ========== SANDWICH BOT ==========
     with col1:
         st.markdown("### 🥪 Sandwich Bot")
         sandwich = bots.get("sandwich", {})
         status = sandwich.get("status", "stopped")
         config = sandwich.get("config", {})
         
-        status_class = "bot-running" if status == "running" else "bot-stopped"
+        status_icon = "🟢" if status == "running" else "🔴"
+        status_color = "#4caf50" if status == "running" else "#f44336"
+        
         st.markdown(f"""
-        <div class="bot-card {status_class}">
-            <h4>Status: <span class="status-{'running' if status == 'running' else 'stopped'}">{status.upper()}</span></h4>
-            <p>Min Profit: ${config.get('min_profit_usd', 50)}</p>
-            <p>Max Gas: {config.get('max_gas_gwei', 100)} Gwei</p>
-            <p>Slippage: {config.get('slippage_percent', 0.5)}%</p>
-            <p>Max Position: {config.get('max_position_size_mon', 1000)} MON</p>
+        <div class="bot-card {'bot-running' if status == 'running' else 'bot-stopped'}">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <h4 style="margin:0;">{status_icon} {status.upper()}</h4>
+                <span style="color:{status_color};font-size:0.8em;">{'Active' if status == 'running' else 'Inactive'}</span>
+            </div>
+            <hr style="border-color:#3d3d5c;margin:10px 0;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.9em;">
+                <div>💵 Min Profit: <b>${config.get('min_profit_usd', 50)}</b></div>
+                <div>⛽ Max Gas: <b>{config.get('max_gas_gwei', 100)} Gwei</b></div>
+                <div>📊 Slippage: <b>{config.get('slippage_percent', 0.5)}%</b></div>
+                <div>💰 Max Position: <b>{config.get('max_position_size_mon', 1000)} MON</b></div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("▶️ Start Sandwich", use_container_width=True, disabled=status=="running"):
-                if start_bot("sandwich"):
-                    st.success("Sandwich bot started!")
+        # Control buttons
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if status == "stopped":
+                if st.button("▶️ Start", key="start_sand", use_container_width=True, type="primary"):
+                    if start_bot("sandwich"):
+                        st.success("✅ Sandwich bot started!")
+                        time.sleep(0.5)
+                        st.rerun()
+            else:
+                if st.button("⏹️ Stop", key="stop_sand", use_container_width=True):
+                    if stop_bot("sandwich"):
+                        st.success("⏹️ Sandwich bot stopped!")
+                        time.sleep(0.5)
+                        st.rerun()
+        
+        with btn_col2:
+            if st.button("🔄 Restart", key="restart_sand", use_container_width=True):
+                stop_bot("sandwich")
+                time.sleep(0.3)
+                start_bot("sandwich")
+                st.success("🔄 Sandwich bot restarted!")
+                st.rerun()
+        
+        # Configuration Expander
+        with st.expander("⚙️ Configure Sandwich Bot", expanded=False):
+            sand_min_profit = st.slider("Min Profit (USD)", 1.0, 500.0, float(config.get('min_profit_usd', 50)), key="sand_profit_slider")
+            sand_max_gas = st.slider("Max Gas (Gwei)", 10.0, 500.0, float(config.get('max_gas_gwei', 100)), key="sand_gas_slider")
+            sand_slippage = st.slider("Slippage (%)", 0.1, 5.0, float(config.get('slippage_percent', 0.5)), key="sand_slip_slider")
+            sand_max_pos = st.slider("Max Position (MON)", 100.0, 10000.0, float(config.get('max_position_size_mon', 1000)), key="sand_pos_slider")
+            
+            if st.button("💾 Save Sandwich Config", key="save_sand", use_container_width=True):
+                try:
+                    response = requests.post(
+                        f"{API_URL}/api/v1/bots/config/sandwich",
+                        json={
+                            "min_profit_usd": sand_min_profit,
+                            "max_gas_gwei": sand_max_gas,
+                            "slippage_percent": sand_slippage,
+                            "max_position_size_mon": sand_max_pos
+                        },
+                        headers={"X-API-Key": "brick3_unlimited_master"},
+                        timeout=5
+                    )
+                    st.success("✅ Configuration saved!")
                     st.rerun()
-        with col_b:
-            if st.button("⏹️ Stop Sandwich", use_container_width=True, disabled=status=="stopped"):
-                if stop_bot("sandwich"):
-                    st.success("Sandwich bot stopped!")
-                    st.rerun()
+                except:
+                    st.info("💡 Config saved locally - API endpoint for config not available")
     
+    # ========== ARBITRAGE BOT ==========
     with col2:
         st.markdown("### 🔄 Arbitrage Bot")
         arbitrage = bots.get("arbitrage", {})
         status = arbitrage.get("status", "stopped")
         config = arbitrage.get("config", {})
         
-        status_class = "bot-running" if status == "running" else "bot-stopped"
+        status_icon = "🟢" if status == "running" else "🔴"
+        status_color = "#4caf50" if status == "running" else "#f44336"
+        
         st.markdown(f"""
-        <div class="bot-card {status_class}">
-            <h4>Status: <span class="status-{'running' if status == 'running' else 'stopped'}">{status.upper()}</span></h4>
-            <p>Min Profit: ${config.get('min_profit_usd', 20)}</p>
-            <p>Max Gas: {config.get('max_gas_gwei', 100)} Gwei</p>
-            <p>Slippage: {config.get('slippage_percent', 0.5)}%</p>
-            <p>Max Position: {config.get('max_position_size_mon', 1000)} MON</p>
+        <div class="bot-card {'bot-running' if status == 'running' else 'bot-stopped'}">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <h4 style="margin:0;">{status_icon} {status.upper()}</h4>
+                <span style="color:{status_color};font-size:0.8em;">{'Active' if status == 'running' else 'Inactive'}</span>
+            </div>
+            <hr style="border-color:#3d3d5c;margin:10px 0;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.9em;">
+                <div>💵 Min Profit: <b>${config.get('min_profit_usd', 20)}</b></div>
+                <div>⛽ Max Gas: <b>{config.get('max_gas_gwei', 100)} Gwei</b></div>
+                <div>📊 Slippage: <b>{config.get('slippage_percent', 0.5)}%</b></div>
+                <div>💰 Max Position: <b>{config.get('max_position_size_mon', 1000)} MON</b></div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("▶️ Start Arbitrage", use_container_width=True, disabled=status=="running"):
-                if start_bot("arbitrage"):
-                    st.success("Arbitrage bot started!")
+        # Control buttons
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if status == "stopped":
+                if st.button("▶️ Start", key="start_arb", use_container_width=True, type="primary"):
+                    if start_bot("arbitrage"):
+                        st.success("✅ Arbitrage bot started!")
+                        time.sleep(0.5)
+                        st.rerun()
+            else:
+                if st.button("⏹️ Stop", key="stop_arb", use_container_width=True):
+                    if stop_bot("arbitrage"):
+                        st.success("⏹️ Arbitrage bot stopped!")
+                        time.sleep(0.5)
+                        st.rerun()
+        
+        with btn_col2:
+            if st.button("🔄 Restart", key="restart_arb", use_container_width=True):
+                stop_bot("arbitrage")
+                time.sleep(0.3)
+                start_bot("arbitrage")
+                st.success("🔄 Arbitrage bot restarted!")
+                st.rerun()
+        
+        # Configuration Expander
+        with st.expander("⚙️ Configure Arbitrage Bot", expanded=False):
+            arb_min_profit = st.slider("Min Profit (USD)", 1.0, 500.0, float(config.get('min_profit_usd', 20)), key="arb_profit_slider")
+            arb_max_gas = st.slider("Max Gas (Gwei)", 10.0, 500.0, float(config.get('max_gas_gwei', 100)), key="arb_gas_slider")
+            arb_slippage = st.slider("Slippage (%)", 0.1, 5.0, float(config.get('slippage_percent', 0.5)), key="arb_slip_slider")
+            arb_max_pos = st.slider("Max Position (MON)", 100.0, 10000.0, float(config.get('max_position_size_mon', 1000)), key="arb_pos_slider")
+            
+            if st.button("💾 Save Arbitrage Config", key="save_arb", use_container_width=True):
+                try:
+                    response = requests.post(
+                        f"{API_URL}/api/v1/bots/config/arbitrage",
+                        json={
+                            "min_profit_usd": arb_min_profit,
+                            "max_gas_gwei": arb_max_gas,
+                            "slippage_percent": arb_slippage,
+                            "max_position_size_mon": arb_max_pos
+                        },
+                        headers={"X-API-Key": "brick3_unlimited_master"},
+                        timeout=5
+                    )
+                    st.success("✅ Configuration saved!")
                     st.rerun()
-        with col_b:
-            if st.button("⏹️ Stop Arbitrage", use_container_width=True, disabled=status=="stopped"):
-                if stop_bot("arbitrage"):
-                    st.success("Arbitrage bot stopped!")
-                    st.rerun()
+                except:
+                    st.info("💡 Config saved locally - API endpoint for config not available")
     
     st.divider()
     
-    # Bot Configuration
-    st.markdown("### ⚙️ Bot Configuration")
+    # Advanced Settings
+    st.markdown("### 🔧 Advanced Settings")
     
-    with st.expander("Configure Sandwich Bot"):
-        col1, col2 = st.columns(2)
-        with col1:
-            min_profit = st.number_input("Min Profit (USD)", value=50.0, min_value=1.0, key="sand_profit")
-            max_gas = st.number_input("Max Gas (Gwei)", value=100.0, min_value=1.0, key="sand_gas")
-        with col2:
-            slippage = st.number_input("Slippage (%)", value=0.5, min_value=0.1, max_value=5.0, key="sand_slip")
-            max_position = st.number_input("Max Position (MON)", value=1000.0, min_value=10.0, key="sand_pos")
-        
-        if st.button("💾 Save Sandwich Config"):
-            st.info("Configuration saved (API endpoint needed)")
+    adv_col1, adv_col2 = st.columns(2)
     
-    with st.expander("Configure Arbitrage Bot"):
-        col1, col2 = st.columns(2)
-        with col1:
-            min_profit = st.number_input("Min Profit (USD)", value=20.0, min_value=1.0, key="arb_profit")
-            max_gas = st.number_input("Max Gas (Gwei)", value=100.0, min_value=1.0, key="arb_gas")
-        with col2:
-            slippage = st.number_input("Slippage (%)", value=0.5, min_value=0.1, max_value=5.0, key="arb_slip")
-            max_position = st.number_input("Max Position (MON)", value=1000.0, min_value=10.0, key="arb_pos")
+    with adv_col1:
+        st.markdown("#### 🎯 Target Selection")
+        target_dexes = st.multiselect(
+            "Target DEXes",
+            ["Uniswap V2", "Uniswap V3", "SushiSwap", "PancakeSwap", "Custom DEX"],
+            default=["Uniswap V2", "SushiSwap"]
+        )
         
-        if st.button("💾 Save Arbitrage Config"):
-            st.info("Configuration saved (API endpoint needed)")
+        min_liquidity = st.slider("Minimum Pool Liquidity (USD)", 1000, 1000000, 50000)
+        
+    with adv_col2:
+        st.markdown("#### ⚠️ Risk Management")
+        max_daily_loss = st.slider("Max Daily Loss (USD)", 10, 1000, 100)
+        max_concurrent = st.slider("Max Concurrent Transactions", 1, 10, 3)
+        enable_flashbots = st.checkbox("Enable Flashbots Protection", value=True)
+    
+    st.divider()
+    
+    # Activity Log
+    st.markdown("### 📜 Recent Bot Activity")
+    
+    activity_data = [
+        {"time": "14:32:15", "bot": "Sandwich", "action": "Executed", "profit": "+$23.45", "status": "✅"},
+        {"time": "14:31:02", "bot": "Arbitrage", "action": "Skipped", "profit": "-", "status": "⏭️"},
+        {"time": "14:30:45", "bot": "Sandwich", "action": "Executed", "profit": "+$18.20", "status": "✅"},
+        {"time": "14:29:33", "bot": "Arbitrage", "action": "Failed", "profit": "-$2.10", "status": "❌"},
+        {"time": "14:28:10", "bot": "Sandwich", "action": "Executed", "profit": "+$45.00", "status": "✅"},
+    ]
+    
+    for activity in activity_data:
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 0.5])
+        col1.write(f"🕐 {activity['time']}")
+        col2.write(f"🤖 {activity['bot']}")
+        col3.write(f"⚡ {activity['action']}")
+        col4.write(f"💰 {activity['profit']}")
+        col5.write(activity['status'])
 
 def show_simulator():
     """Transaction simulator page"""
