@@ -29,50 +29,65 @@ import random
 
 load_dotenv()
 
+# ==================== ENVIRONMENT DETECTION ====================
+# Detect if running in production (Render) or local development
+IS_PRODUCTION = os.getenv("RENDER", "false").lower() == "true" or os.getenv("IS_PRODUCTION", "false").lower() == "true"
+
 # ==================== OPAMEV INFRASTRUCTURE ====================
-# Import advanced infrastructure from OpaMev stack
-try:
-    from infrastructure_config import (
-        get_redis_cache, 
-        get_quic_gateway, 
-        get_rpc_client,
-        get_metrics_collector,
-        check_infrastructure_status,
-        InfrastructureConfig
-    )
-    INFRA_AVAILABLE = True
-    print("✅ OpaMev Infrastructure loaded (QUIC, Redis, DAG Mempool)")
-except ImportError:
-    INFRA_AVAILABLE = False
-    print("⚠️ OpaMev Infrastructure not available, using standard mode")
+# Import advanced infrastructure from OpaMev stack (only in local dev)
+INFRA_AVAILABLE = False
+if not IS_PRODUCTION:
+    try:
+        from infrastructure_config import (
+            get_redis_cache, 
+            get_quic_gateway, 
+            get_rpc_client,
+            get_metrics_collector,
+            check_infrastructure_status,
+            InfrastructureConfig
+        )
+        INFRA_AVAILABLE = True
+        print("✅ OpaMev Infrastructure loaded (QUIC, Redis, DAG Mempool)")
+    except ImportError:
+        print("⚠️ OpaMev Infrastructure not available, using standard mode")
+else:
+    print("🌐 Production mode - OpaMev local services disabled")
 
 # ==================== CONFIG ====================
 # Use local RPC proxy if available (for caching and lower latency)
 MONAD_RPC_LOCAL = os.getenv("MONAD_RPC_LOCAL", "http://localhost:8545")
 MONAD_RPC_REMOTE = os.getenv("MONAD_RPC", "https://rpc.monad.xyz")
-USE_LOCAL_RPC = os.getenv("USE_LOCAL_RPC", "true").lower() == "true"
-MONAD_RPC = MONAD_RPC_LOCAL if USE_LOCAL_RPC else MONAD_RPC_REMOTE
+# In production, always use remote RPC
+USE_LOCAL_RPC = os.getenv("USE_LOCAL_RPC", "false" if IS_PRODUCTION else "true").lower() == "true"
+MONAD_RPC = MONAD_RPC_LOCAL if USE_LOCAL_RPC and not IS_PRODUCTION else MONAD_RPC_REMOTE
 
 CHAIN_ID = 143  # Monad Mainnet
 REFRESH_INTERVAL = 2  # seconds
 DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"  # Demo mode for testing
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"  # Toggle API key auth
 
-# Feature flags for advanced features
-USE_QUIC = os.getenv("USE_QUIC", "true").lower() == "true"
-USE_REDIS_CACHE = os.getenv("USE_REDIS", "true").lower() == "true"
-USE_DAG_MEMPOOL = os.getenv("USE_DAG_MEMPOOL", "true").lower() == "true"
+# Feature flags for advanced features (disabled in production unless external services configured)
+USE_QUIC = os.getenv("USE_QUIC", "false" if IS_PRODUCTION else "true").lower() == "true"
+USE_REDIS_CACHE = os.getenv("USE_REDIS", "false" if IS_PRODUCTION else "true").lower() == "true"
+USE_DAG_MEMPOOL = os.getenv("USE_DAG_MEMPOOL", "false" if IS_PRODUCTION else "true").lower() == "true"
 
-# Web3 Connection (prefer local RPC proxy)
+# Web3 Connection (prefer local RPC proxy in dev)
 try:
     w3 = Web3(Web3.HTTPProvider(MONAD_RPC, request_kwargs={'timeout': 30}))
 except:
     w3 = None
 
-# Initialize infrastructure components
-redis_cache = get_redis_cache() if INFRA_AVAILABLE and USE_REDIS_CACHE else None
-quic_gateway = get_quic_gateway() if INFRA_AVAILABLE and USE_QUIC else None
-metrics_collector = get_metrics_collector() if INFRA_AVAILABLE else None
+# Initialize infrastructure components (only in local dev)
+redis_cache = None
+quic_gateway = None
+metrics_collector = None
+
+if INFRA_AVAILABLE and not IS_PRODUCTION:
+    if USE_REDIS_CACHE:
+        redis_cache = get_redis_cache()
+    if USE_QUIC:
+        quic_gateway = get_quic_gateway()
+    metrics_collector = get_metrics_collector()
 
 # ==================== UNLIMITED API KEYS ====================
 API_KEYS = {
@@ -480,11 +495,18 @@ def health_check():
         "timestamp": datetime.now().isoformat(),
         "rpc_connected": w3.is_connected() if w3 else False,
         "monitoring_active": monitoring_active,
-        "opportunities_count": len(opportunities_store)
+        "opportunities_count": len(opportunities_store),
+        "environment": "production" if IS_PRODUCTION else "development"
     }
     
-    # Add infrastructure status if available
-    if INFRA_AVAILABLE:
+    # Add infrastructure status
+    if IS_PRODUCTION:
+        response["infrastructure"] = {
+            "opamev_stack": False,
+            "note": "Production mode - using remote services",
+            "rpc": "rpc.monad.xyz"
+        }
+    elif INFRA_AVAILABLE:
         response["infrastructure"] = {
             "opamev_stack": True,
             "redis": redis_cache.connected if redis_cache else False,
@@ -507,6 +529,24 @@ async def get_infrastructure_status(api_key: str = Depends(validate_api_key)):
     - DAG Mempool
     - Local Monad RPC Proxy
     """
+    if IS_PRODUCTION:
+        return {
+            "success": True,
+            "environment": "production",
+            "message": "Running in production mode on Render",
+            "infrastructure": {
+                "opamev_stack": False,
+                "rpc": "rpc.monad.xyz (remote)",
+                "note": "Local OpaMev services not available in production. Use local development for full infrastructure."
+            },
+            "features": {
+                "quic_enabled": False,
+                "redis_enabled": False,
+                "dag_mempool_enabled": False,
+                "local_rpc_enabled": False
+            }
+        }
+    
     if not INFRA_AVAILABLE:
         return {
             "success": False,
