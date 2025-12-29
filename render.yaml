@@ -1,7 +1,6 @@
 services:
-  # API Backend Service
   - type: web
-    name: monmev-api
+    name: brick3-api
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn monmev_api:app --host 0.0.0.0 --port $PORT
@@ -13,15 +12,4 @@ services:
       - key: MONAD_RPC
         value: "https://rpc.monad.xyz"
     healthCheckPath: /health
-    plan: free
-
-  # Dashboard Frontend Service
-  - type: web
-    name: monmev-dashboard
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run monmev_dashboard.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
-    envVars:
-      - key: API_URL
-        sync: false
     plan: free
