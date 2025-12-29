@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ==================== CONFIG ====================
-MONAD_RPC = "https://testnet-rpc.monad.xyz"
+MONAD_RPC = "https://rpc.monad.xyz"  # MAINNET
 MON_PRICE_USD = 1.5
 
 # ==================== STYLES ====================
@@ -240,14 +240,14 @@ def show_transactions(txs):
                 st.write(f"**Gas Price:** {tx['gas_gwei']:.2f} Gwei")
                 st.write(f"**Input:** {tx['input_preview']}")
             
-            explorer_url = f"https://testnet.monadexplorer.com/tx/{tx['hash']}"
+            explorer_url = f"https://monadexplorer.com/tx/{tx['hash']}"
             st.markdown(f"[🔗 View on Explorer]({explorer_url})")
 
 # ==================== MAIN UI ====================
 def main():
     # Header
     st.markdown('<h1 class="main-header">🧱 Brick3 MEV Dashboard</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center;color:#888;">Real-time Monad Blockchain Monitoring - 100% REAL DATA</p>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#888;">Real-time Monad Blockchain Monitoring - MAINNET 🟢</p>', unsafe_allow_html=True)
     
     # Controls
     col1, col2, col3 = st.columns([2, 1, 1])
