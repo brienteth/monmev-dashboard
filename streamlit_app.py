@@ -92,7 +92,9 @@ defaults = {
     "filter_min_mon": 0.0,
     "filter_max_mon": 10000.0,
     "filter_types": ["whale", "large", "medium", "micro", "swap", "contract"],
-    "blocks_to_scan": 20
+    "blocks_to_scan": 20,
+    "auto_refresh": False,
+    "refresh_interval": 5
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -453,7 +455,24 @@ def show_dashboard():
                     st.warning("No transactions found, try again.")
     
     with col3:
-        auto_refresh = st.checkbox("🔁 Auto Refresh", value=False)
+        col3a, col3b = st.columns(2)
+        with col3a:
+            st.session_state.auto_refresh = st.checkbox(
+                "🔁 Auto Refresh", 
+                value=st.session_state.auto_refresh,
+                key="auto_refresh_checkbox"
+            )
+        with col3b:
+            st.session_state.refresh_interval = st.selectbox(
+                "⏱️ Interval",
+                options=[3, 5, 10, 15, 30],
+                index=1,
+                format_func=lambda x: f"{x}s"
+            )
+    
+    # Auto-refresh status indicator
+    if st.session_state.auto_refresh:
+        st.success(f"🔄 Auto-refresh enabled - scanning every {st.session_state.refresh_interval} seconds")
     
     st.divider()
     
@@ -515,8 +534,22 @@ def show_dashboard():
         st.markdown(f"### 📋 Transactions ({len(filtered_txs)} results)")
         show_transactions(filtered_txs)
     
-    if auto_refresh:
-        time.sleep(5)
+    # Auto-refresh logic - runs at the end
+    if st.session_state.auto_refresh:
+        # Auto-scan blockchain
+        placeholder = st.empty()
+        for remaining in range(st.session_state.refresh_interval, 0, -1):
+            placeholder.info(f"⏳ Next scan in {remaining} seconds...")
+            time.sleep(1)
+        placeholder.empty()
+        
+        # Perform auto-scan
+        txs, block = scan_blockchain(st.session_state.blocks_to_scan)
+        if txs:
+            st.session_state.transactions = txs
+            st.session_state.last_block = block
+            st.session_state.scan_count += 1
+            st.session_state.total_value = sum(t["value_mon"] for t in txs)
         st.rerun()
 
 def show_transactions(txs):
