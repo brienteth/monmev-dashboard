@@ -376,9 +376,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["📊 MEV Monitor", "🤖 Bot Control", "💰 
 
 # ==================== TAB 1: MEV MONITOR ====================
 with tab1:
-
-# ==================== TAB 1: MEV MONITOR ====================
-with tab1:
     # Status bar
     col1, col2, col3, col4 = st.columns(4)
     with col1:
