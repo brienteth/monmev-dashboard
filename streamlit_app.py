@@ -466,7 +466,14 @@ def show_sidebar():
         </div>
         """, unsafe_allow_html=True)
         
-        if not api_key:
+        if api_key:
+            if st.button("🔄 Reset Key", use_container_width=True, key="sidebar_reset_key"):
+                st.session_state.user_api_key = ""
+                st.session_state.api_key_tier = "free"
+                st.session_state.api_key_valid = False
+                st.session_state.api_calls_limit = 100
+                st.rerun()
+        else:
             st.markdown("""
             <a href="https://www.brick3.fun/get-api-key" target="_blank" style="display:block;background:linear-gradient(90deg, #667eea 0%, #764ba2 100%);color:white;padding:10px;border-radius:8px;text-align:center;text-decoration:none;margin-top:10px;font-size:0.9em;">
                 🔑 Get API Key
@@ -1300,36 +1307,84 @@ def show_api_keys():
     with col1:
         api_key_input = st.text_input(
             "API Key",
-            value=current_key,
+            value="",
             type="password",
-            placeholder="brick3_xxxxxxxxxxxxxxxx",
-            help="Get your API key from brick3.fun/get-api-key"
+            placeholder="brick3_pro_xxxxx or brick3_ent_xxxxx",
+            help="Get your API key from brick3.fun/get-api-key",
+            key="api_key_input_field"
         )
+    
     with col2:
-        if st.button("✅ Validate Key", type="primary", use_container_width=True):
-            if api_key_input:
-                # Demo validation logic
-                if api_key_input.startswith("brick3_"):
-                    st.session_state.user_api_key = api_key_input
-                    st.session_state.api_key_valid = True
-                    
-                    # Determine tier based on key prefix
-                    if "enterprise" in api_key_input.lower() or "ent_" in api_key_input:
-                        st.session_state.api_key_tier = "enterprise"
-                        st.session_state.api_calls_limit = 100000
-                    elif "pro_" in api_key_input or "premium" in api_key_input.lower():
-                        st.session_state.api_key_tier = "pro"
-                        st.session_state.api_calls_limit = 10000
-                    else:
-                        st.session_state.api_key_tier = "free"
-                        st.session_state.api_calls_limit = 100
-                    
-                    st.success(f"✅ API Key validated! Tier: {st.session_state.api_key_tier.upper()}")
-                    st.rerun()
+        validate_clicked = st.button("✅ Validate Key", type="primary", use_container_width=True)
+    
+    # Show current key if exists
+    if current_key:
+        st.info(f"🔑 Current Key: `{current_key[:15]}...{current_key[-4:]}`")
+    
+    if validate_clicked:
+        if api_key_input:
+            # Demo validation logic
+            if api_key_input.startswith("brick3_"):
+                st.session_state.user_api_key = api_key_input
+                st.session_state.api_key_valid = True
+                
+                # Determine tier based on key content
+                key_lower = api_key_input.lower()
+                if "ent" in key_lower or "enterprise" in key_lower:
+                    st.session_state.api_key_tier = "enterprise"
+                    st.session_state.api_calls_limit = 100000
+                    tier_name = "ENTERPRISE 👑"
+                elif "pro" in key_lower or "premium" in key_lower:
+                    st.session_state.api_key_tier = "pro"
+                    st.session_state.api_calls_limit = 10000
+                    tier_name = "PRO ⚡"
                 else:
-                    st.error("❌ Invalid API key format. Keys should start with 'brick3_'")
+                    st.session_state.api_key_tier = "free"
+                    st.session_state.api_calls_limit = 100
+                    tier_name = "FREE 🆓"
+                
+                st.success(f"✅ API Key validated successfully! Your Plan: **{tier_name}**")
+                time.sleep(1)
+                st.rerun()
             else:
-                st.warning("⚠️ Please enter an API key")
+                st.error("❌ Invalid API key format. Keys should start with 'brick3_'")
+        else:
+            st.warning("⚠️ Please enter an API key in the field above")
+    
+    # Quick demo keys for testing
+    st.markdown("---")
+    st.markdown("#### 🧪 Demo Keys for Testing")
+    demo_col1, demo_col2, demo_col3 = st.columns(3)
+    
+    with demo_col1:
+        if st.button("🆓 Use Free Demo", use_container_width=True):
+            st.session_state.user_api_key = "brick3_free_demo_key"
+            st.session_state.api_key_tier = "free"
+            st.session_state.api_calls_limit = 100
+            st.session_state.api_key_valid = True
+            st.success("✅ Free demo key activated!")
+            time.sleep(0.5)
+            st.rerun()
+    
+    with demo_col2:
+        if st.button("⚡ Use Pro Demo", use_container_width=True, type="primary"):
+            st.session_state.user_api_key = "brick3_pro_demo_key"
+            st.session_state.api_key_tier = "pro"
+            st.session_state.api_calls_limit = 10000
+            st.session_state.api_key_valid = True
+            st.success("✅ Pro demo key activated!")
+            time.sleep(0.5)
+            st.rerun()
+    
+    with demo_col3:
+        if st.button("👑 Use Enterprise Demo", use_container_width=True):
+            st.session_state.user_api_key = "brick3_ent_demo_key"
+            st.session_state.api_key_tier = "enterprise"
+            st.session_state.api_calls_limit = 100000
+            st.session_state.api_key_valid = True
+            st.success("✅ Enterprise demo key activated!")
+            time.sleep(0.5)
+            st.rerun()
     
     # Get API Key CTA
     st.markdown("### 🚀 Get Your API Key")
