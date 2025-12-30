@@ -112,15 +112,25 @@ API_KEYS = {
         "created": "2025-01-01",
         "expires": None
     },
-    # FastLane Demo Key - For evaluation
-    "fastlane_demo_2025": {
-        "name": "FastLane Demo",
-        "tier": "demo",
-        "rate_limit": 100,
+    # FastLane 7-Day Free Trial - Full Mainnet Access
+    "brick3_fastlane_trial_2025": {
+        "name": "FastLane Free Trial",
+        "tier": "pro",
+        "rate_limit": 1000,
         "created": "2025-12-30",
-        "expires": "2026-03-30",
-        "features": ["read", "simulate", "bot_status"],
-        "description": "Demo access for FastLane evaluation"
+        "expires": "2026-01-06",  # 7 days from creation
+        "features": ["all"],
+        "description": "7-day free trial with full mainnet access for FastLane team"
+    },
+    # Legacy Demo Key (keep for backward compatibility)
+    "brick3_demo_fastlane_2025": {
+        "name": "FastLane Demo (Legacy)",
+        "tier": "pro",
+        "rate_limit": 1000,
+        "created": "2025-12-30",
+        "expires": "2026-01-06",
+        "features": ["all"],
+        "description": "Legacy demo key - redirects to trial"
     },
     # FastLane Production Key - Full access
     "fastlane_production_atlas": {
