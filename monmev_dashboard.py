@@ -512,17 +512,50 @@ with tab2:
 
 # ==================== TAB 3: FASTLANE ====================
 with tab3:
-    st.markdown("### ⚡ FastLane MEV Protection")
+    st.markdown("### ⚡ FastLane MEV Protection - Atlas Protocol Integration")
     
-    col1, col2 = st.columns(2)
+    # FastLane Stats Section
+    st.markdown("---")
     
+    # Fetch FastLane stats
+    fastlane_stats = None
+    try:
+        response = requests.get(f"{API_URL}/api/v1/fastlane/stats", headers={"X-API-Key": API_KEY}, timeout=5)
+        if response.status_code == 200:
+            fastlane_stats = response.json()
+    except:
+        pass
+    
+    # Top metrics row
+    if fastlane_stats:
+        stats_data = fastlane_stats.get("stats", {})
+        shmon_data = fastlane_stats.get("shmon_integration", {})
+        
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.metric("🎯 MEV Opportunities", stats_data.get("total_mev_opportunities", 0))
+        with m2:
+            st.metric("💰 Total Captured", f"${stats_data.get('total_mev_captured_usd', 0):.2f}")
+        with m3:
+            st.metric("📊 24h Volume", f"${stats_data.get('last_24h_volume', 0):.2f}")
+        with m4:
+            st.metric("📈 APY Boost", shmon_data.get("estimated_apy_boost", "+0%"))
+    else:
+        st.warning("⚠️ FastLane stats unavailable - API might be offline")
+    
+    st.markdown("---")
+    
+    # Three columns layout
+    col1, col2, col3 = st.columns(3)
+    
+    # Column 1: MEV Protection Calculator
     with col1:
         st.markdown("#### 🛡️ MEV Protection Calculator")
         
-        swap_value = st.number_input("Swap Value (MON)", min_value=1.0, value=100.0, step=10.0)
-        refund_percent = st.slider("Protocol Refund %", 0, 90, 10)
+        swap_value = st.number_input("Swap Value (MON)", min_value=1.0, value=100.0, step=10.0, key="fl_swap")
+        refund_percent = st.slider("Protocol Refund %", 0, 90, 10, key="fl_refund")
         
-        if st.button("🔮 Calculate MEV Savings", type="primary", use_container_width=True):
+        if st.button("🔮 Calculate Savings", type="primary", use_container_width=True):
             try:
                 response = requests.get(
                     f"{API_URL}/api/v1/fastlane/quote",
@@ -536,15 +569,20 @@ with tab3:
                     
                     st.success("✅ Quote received!")
                     
+                    # Show results in a nice format
                     st.markdown(f"""
-                    | Metric | Value |
-                    |--------|-------|
-                    | Swap Value | {quote.get('swap_value_mon', 0)} MON |
-                    | Large Swap? | {'✅ Yes' if quote.get('is_large_swap') else '❌ No'} |
-                    | MEV Extraction | {quote.get('estimated_mev_extraction', 0):.6f} MON |
-                    | **Your Savings** | **{quote.get('user_savings_mon', 0):.6f} MON** |
-                    | Protocol Revenue | {quote.get('protocol_revenue_mon', 0):.6f} MON |
-                    """)
+                    <div style="background: rgba(102, 126, 234, 0.1); border-radius: 10px; padding: 15px; margin: 10px 0;">
+                        <h4 style="margin: 0 0 10px 0;">📊 Results</h4>
+                        <table style="width: 100%;">
+                            <tr><td>Swap Value</td><td><b>{quote.get('swap_value_mon', 0)} MON</b></td></tr>
+                            <tr><td>Large Swap?</td><td>{'✅ Yes' if quote.get('is_large_swap') else '❌ No'}</td></tr>
+                            <tr><td>MEV Rate</td><td>{quote.get('mev_rate_percent', 0):.2f}%</td></tr>
+                            <tr><td>MEV Extraction</td><td>{quote.get('estimated_mev_extraction', 0):.6f} MON</td></tr>
+                            <tr><td style="color: #4ecdc4;"><b>Your Savings</b></td><td style="color: #4ecdc4;"><b>{quote.get('user_savings_mon', 0):.6f} MON</b></td></tr>
+                            <tr><td>Protocol Revenue</td><td>{quote.get('protocol_revenue_mon', 0):.6f} MON</td></tr>
+                        </table>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
                     st.info(f"💡 {quote.get('recommendation', '')}")
                 else:
@@ -552,7 +590,64 @@ with tab3:
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
     
+    # Column 2: MEV Simulation
     with col2:
+        st.markdown("#### 🔬 MEV Simulation")
+        
+        sim_amount = st.number_input("Swap Amount (MON)", min_value=10.0, value=500.0, step=50.0, key="fl_sim")
+        
+        if st.button("🚀 Simulate MEV", type="secondary", use_container_width=True):
+            try:
+                response = requests.post(
+                    f"{API_URL}/api/v1/fastlane/simulate",
+                    params={"swap_amount": sim_amount},
+                    headers={"X-API-Key": API_KEY},
+                    timeout=5
+                )
+                
+                if response.status_code == 200:
+                    sim = response.json().get("simulation", {})
+                    mev = sim.get("extractable_mev", {})
+                    protection = sim.get("with_protection", {})
+                    
+                    st.success(f"✅ Simulation: {sim.get('recommendation', 'STANDARD')}")
+                    
+                    # Extractable MEV
+                    st.markdown("**📈 Extractable MEV:**")
+                    st.markdown(f"""
+                    - 🥪 Sandwich: `{mev.get('sandwich', 0):.4f}` MON
+                    - 🏃 Backrun: `{mev.get('backrun', 0):.4f}` MON
+                    - **Total: `{mev.get('total', 0):.4f}` MON**
+                    """)
+                    
+                    # With Protection
+                    st.markdown("**🛡️ With FastLane Protection:**")
+                    st.markdown(f"""
+                    - 👤 User Savings: `{protection.get('user_savings', 0):.4f}` MON (70%)
+                    - 🏢 Protocol: `{protection.get('protocol_share', 0):.4f}` MON (20%)
+                    - ✅ Validator: `{protection.get('validator_share', 0):.4f}` MON (10%)
+                    """)
+                else:
+                    st.error("❌ Simulation failed")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+        
+        st.markdown("---")
+        
+        # Revenue Distribution Pie
+        st.markdown("**💰 Revenue Distribution:**")
+        st.markdown("""
+        ```
+        ┌─────────────────────────┐
+        │   70% → shMON Holders   │
+        │   20% → Brick3          │
+        │   10% → Validators      │
+        └─────────────────────────┘
+        ```
+        """)
+    
+    # Column 3: FastLane Info & Links
+    with col3:
         st.markdown("#### 📋 FastLane Info")
         
         try:
@@ -561,31 +656,89 @@ with tab3:
                 info = response.json()
                 
                 st.markdown(f"""
-                **Protocol:** {info.get('protocol', 'Atlas')}
+                **🔗 Protocol:** {info.get('protocol', 'Atlas')}
                 
-                **Contracts:**
-                - Atlas Router: `{info.get('contracts', {}).get('atlas_router', 'N/A')[:20]}...`
-                
-                **Features:**
+                **📜 Contracts:**
                 """)
                 
+                contracts = info.get('contracts', {})
+                atlas_router = contracts.get('atlas_router', 'N/A')
+                st.code(atlas_router, language=None)
+                st.caption(f"Chain ID: {contracts.get('chain_id', 'N/A')}")
+                
+                st.markdown("**✨ Features:**")
                 for feature in info.get('features', []):
                     st.markdown(f"- {feature}")
                 
                 st.markdown("---")
-                st.markdown("**🔗 Links:**")
+                
                 endpoints = info.get('endpoints', {})
-                st.markdown(f"- [Docs]({endpoints.get('docs', '#')})")
-                st.markdown(f"- [Stake shMONAD]({endpoints.get('stake', '#')})")
+                st.markdown("**🔗 Quick Links:**")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.link_button("📚 Docs", endpoints.get('docs', '#'), use_container_width=True)
+                with col_b:
+                    st.link_button("🥩 Stake", endpoints.get('stake', '#'), use_container_width=True)
         except:
             st.warning("⚠️ FastLane info unavailable")
         
         st.markdown("---")
-        st.markdown("#### 🥩 shMONAD Staking")
-        st.info("Stake MON to receive shMONAD and earn MEV rewards!")
         
-        if st.button("🔗 Go to shMONAD", use_container_width=True):
-            st.markdown("[Open shMONAD](https://shmonad.xyz/)")
+        # shMONAD Section
+        st.markdown("#### 🥩 shMONAD Staking")
+        st.info("Stake MON → Get shMONAD → Earn MEV Rewards!")
+        
+        if fastlane_stats:
+            revenue = fastlane_stats.get("shmon_integration", {}).get("revenue_share", {})
+            st.markdown(f"""
+            **Revenue Share:**
+            - shMON Holders: **{revenue.get('shmon_holders', '70%')}**
+            - Brick3: {revenue.get('brick3', '20%')}
+            - Validators: {revenue.get('validators', '10%')}
+            """)
+        
+        st.link_button("🚀 Go to shMONAD", "https://shmonad.xyz/", use_container_width=True, type="primary")
+    
+    # APY Calculator Section
+    st.markdown("---")
+    st.markdown("### 📊 APY Boost Calculator")
+    
+    apy_col1, apy_col2, apy_col3 = st.columns([1, 1, 2])
+    
+    with apy_col1:
+        daily_mev = st.number_input("Daily MEV Volume ($)", min_value=1000.0, value=5000.0, step=1000.0, key="apy_mev")
+    
+    with apy_col2:
+        tvl = st.number_input("TVL ($)", min_value=100000.0, value=1000000.0, step=100000.0, key="apy_tvl")
+    
+    with apy_col3:
+        if st.button("📈 Calculate APY Boost", use_container_width=True):
+            try:
+                response = requests.get(
+                    f"{API_URL}/api/v1/revenue/estimate-apy",
+                    params={"daily_mev_volume_usd": daily_mev, "tvl_usd": tvl},
+                    headers={"X-API-Key": API_KEY},
+                    timeout=5
+                )
+                
+                if response.status_code == 200:
+                    estimate = response.json().get("estimate", {})
+                    
+                    r1, r2, r3 = st.columns(3)
+                    with r1:
+                        st.metric("Daily shMON Earnings", f"${estimate.get('daily_shmon_earnings_usd', 0):,.2f}")
+                    with r2:
+                        st.metric("Yearly Earnings", f"${estimate.get('yearly_shmon_earnings_usd', 0):,.2f}")
+                    with r3:
+                        apy_boost = estimate.get('estimated_apy_boost_percent', 0)
+                        st.metric("APY Boost", f"+{apy_boost:.2f}%", delta=f"+{apy_boost:.2f}%")
+                    
+                    st.success(f"💡 {estimate.get('note', 'APY boost added to base staking rewards')}")
+                else:
+                    st.error("❌ Calculation failed")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
 
 # ==================== TAB 4: API STATUS ====================
 with tab4:
@@ -615,12 +768,15 @@ with tab4:
         | `GET /health` | Health Check |
         | `GET /api/v1/opportunities` | MEV Opportunities |
         | `GET /api/v1/stats` | Statistics |
-        | `GET /api/v1/keys/generate` | Generate Key |
-        | `GET /api/v1/keys/list` | List Keys |
-        | `GET /api/v1/apriori/status` | aPriori Status |
-        | `POST /api/v1/apriori/submit` | Submit to aPriori |
+        | `GET /api/v1/bots/status` | Bot Status |
+        | `POST /api/v1/bots/start/{type}` | Start Bot |
         | `GET /api/v1/fastlane/info` | FastLane Info |
         | `GET /api/v1/fastlane/quote` | MEV Quote |
+        | `GET /api/v1/fastlane/stats` | FastLane Stats |
+        | `POST /api/v1/fastlane/simulate` | MEV Simulation |
+        | `GET /api/v1/revenue/summary` | Revenue Summary |
+        | `GET /api/v1/revenue/estimate-apy` | APY Calculator |
+        | `GET /api/v1/mainnet/status` | Mainnet Status |
         | `WS /ws/opportunities` | WebSocket |
         """)
     
