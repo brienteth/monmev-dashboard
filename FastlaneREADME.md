@@ -709,7 +709,7 @@ curl -H "X-API-Key: YOUR_API_KEY" \
 
 | Feature | 🆓 Free Trial | ⚡ Pro | 👑 Enterprise |
 |---------|---------------|--------|---------------|
-| **Price** | $0/mo | $49/mo | $199/mo |
+| **Price** | $0/mo | $499/mo | $999/mo |
 | **Duration** | 7 days | Monthly | Monthly |
 | **API Calls/Day** | 1,000 | 10,000 | Unlimited |
 | **Dashboard Access** | Basic | Full | Full |

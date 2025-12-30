@@ -105,7 +105,7 @@ curl -H "X-API-Key: brick3_demo_fastlane_2025" \
 
 | Feature | 🆓 Free Trial | ⚡ Pro | 👑 Enterprise |
 |---------|---------------|--------|---------------|
-| **Price** | $0/mo | $49/mo | $199/mo |
+| **Price** | $0/mo | $499/mo | $999/mo |
 | **Duration** | 7 days | Monthly | Monthly |
 | **API Calls/Day** | 100 | 10,000 | Unlimited |
 | **Dashboard Access** | Basic | Full | Full |

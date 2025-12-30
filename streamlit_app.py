@@ -130,7 +130,7 @@ API_TIERS = {
     "pro": {
         "name": "Pro",
         "price": 49,
-        "price_label": "$49/mo",
+        "price_label": "$499/mo",
         "duration": "Monthly",
         "rate_limit": 10000,
         "features": [
@@ -149,7 +149,7 @@ API_TIERS = {
     "enterprise": {
         "name": "Enterprise",
         "price": 199,
-        "price_label": "$199/mo",
+        "price_label": "$999/mo",
         "duration": "Monthly",
         "rate_limit": 100000,
         "features": [

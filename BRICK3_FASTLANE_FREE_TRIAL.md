@@ -317,8 +317,8 @@ testBrick3();
 | Plan | Price | API Calls | Features |
 |------|-------|-----------|----------|
 | **Free** | $0 | 100/day | Basic monitoring |
-| **Pro** | $49/mo | 10,000/day | Full bot access |
-| **Enterprise** | $199/mo | Unlimited | Priority support + Custom |
+| **Pro** | $499/mo | 10,000/day | Full bot access |
+| **Enterprise** | $999/mo | Unlimited | Priority support + Custom |
 
 **Upgrade:** https://www.brick3.fun/get-api-key
 

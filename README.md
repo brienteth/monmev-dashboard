@@ -156,8 +156,8 @@ curl -H "X-API-Key: YOUR_API_KEY" \
 | Tier | Price | API Calls/Day | Features |
 |------|-------|---------------|----------|
 | **Free Trial** | $0 | 1,000 | 7-day full access |
-| **Pro** | $49/mo | 10,000 | Full bot access |
-| **Enterprise** | $199/mo | Unlimited | Mainnet execution |
+| **Pro** | $499/mo | 10,000 | Full bot access |
+| **Enterprise** | $999/mo | Unlimited | Mainnet execution |
 
 ---
 
