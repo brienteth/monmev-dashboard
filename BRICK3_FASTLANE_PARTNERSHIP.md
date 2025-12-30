@@ -2,7 +2,7 @@
 
 > **Prepared for:** FastLane Team  
 > **Date:** December 30, 2025  
-> **Version:** 2.0 Production  
+> **Version:** 3.0 Production Mainnet  
 > **Contact:** partnership@brick3.fun
 
 ---
@@ -10,6 +10,15 @@
 ## 📋 Executive Summary
 
 Brick3 is a comprehensive MEV (Maximal Extractable Value) infrastructure platform built specifically for **Monad blockchain**. We provide real-time MEV detection, automated bot execution, and transparent revenue distribution through our partnership with FastLane's Atlas Protocol.
+
+### ⚡ What's New in v3.0
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Mainnet Engine** | ✅ Live | Real mempool monitoring on Monad |
+| **FastLane Bundle Submission** | ✅ Ready | Atlas Protocol integration |
+| **Transaction Builder** | ✅ Ready | Sign and build MEV bundles |
+| **Opportunity Detector** | ✅ Live | Sandwich & Arbitrage detection |
 
 ### Key Value Propositions
 
@@ -29,17 +38,64 @@ Brick3 is a comprehensive MEV (Maximal Extractable Value) infrastructure platfor
 | Service | URL | Status |
 |---------|-----|--------|
 | 📊 **Dashboard** | https://brick3.streamlit.app | ✅ Live |
-| 🔌 **API Base** | https://api.brick3.fun/v1 | ✅ Live |
-| 📚 **API Docs** | https://api.brick3.fun/docs | ✅ Live |
+| 🔌 **API** | https://brick3-api.onrender.com | ✅ Live |
+| 📚 **API Docs** | https://brick3-api.onrender.com/docs | ✅ Live |
 | 🌐 **Website** | https://www.brick3.fun | ✅ Live |
 | 🔑 **Get API Key** | https://www.brick3.fun/get-api-key | ✅ Live |
 
-### Demo & Testing URLs
+---
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| 🧪 **Demo API** | https://brick3-api.onrender.com | Testing |
-| 📊 **Demo Dashboard** | https://brick3.streamlit.app | Evaluation |
+## 🚀 Mainnet MEV Engine
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    BRICK3 MAINNET MEV ENGINE                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐  │
+│   │   Monad     │───▶│   Mempool    │───▶│  Opportunity    │  │
+│   │   RPC       │    │   Monitor    │    │  Detector       │  │
+│   └─────────────┘    └──────────────┘    └────────┬────────┘  │
+│                                                    │           │
+│                                                    ▼           │
+│   ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐  │
+│   │  FastLane   │◀───│   Bundle     │◀───│  Transaction    │  │
+│   │  Atlas      │    │   Submitter  │    │  Builder        │  │
+│   └─────────────┘    └──────────────┘    └─────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Mainnet API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/mainnet/status` | GET | Engine status & wallet info |
+| `/api/v1/mainnet/start` | POST | Start MEV engine (Enterprise) |
+| `/api/v1/mainnet/stop` | POST | Stop MEV engine |
+| `/api/v1/mainnet/bot/{type}` | POST | Enable/disable bot |
+| `/api/v1/mainnet/opportunities` | GET | Live opportunities |
+| `/api/v1/mainnet/executions` | GET | Execution history |
+| `/api/v1/mainnet/stats` | GET | Performance stats |
+| `/api/v1/mainnet/configure` | POST | Configure engine |
+
+### Quick Start - Mainnet Engine
+
+```bash
+# 1. Check mainnet engine status
+curl -H "X-API-Key: brick3_demo_fastlane_2025" \
+  https://brick3-api.onrender.com/api/v1/mainnet/status
+
+# 2. View live opportunities (Enterprise key required for execution)
+curl -H "X-API-Key: brick3_demo_fastlane_2025" \
+  https://brick3-api.onrender.com/api/v1/mainnet/opportunities
+
+# 3. Get mainnet stats
+curl -H "X-API-Key: brick3_demo_fastlane_2025" \
+  https://brick3-api.onrender.com/api/v1/mainnet/stats
+```
 
 ---
 

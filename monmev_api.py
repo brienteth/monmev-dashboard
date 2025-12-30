@@ -852,6 +852,15 @@ try:
 except ImportError:
     BOT_SYSTEMS_AVAILABLE = False
 
+# Import mainnet MEV engine
+MAINNET_ENGINE_AVAILABLE = False
+mainnet_engine = None
+try:
+    from mainnet_mev_engine import get_mainnet_engine, MainnetMEVEngine
+    MAINNET_ENGINE_AVAILABLE = True
+except ImportError:
+    pass
+
 @app.get("/api/v1/bots/status", tags=["Bots"])
 def get_bots_status(api_key: str = Depends(validate_api_key)):
     """Get status of all MEV bots"""
@@ -1390,6 +1399,200 @@ async def shutdown_event():
     global monitoring_active
     monitoring_active = False
     print("👋 Brick3 MEV API shutting down...")
+
+# ==================== MAINNET MEV ENGINE ENDPOINTS ====================
+
+@app.get("/api/v1/mainnet/status", tags=["Mainnet"])
+def mainnet_status(api_key: str = Depends(validate_api_key)):
+    """Get mainnet MEV engine status"""
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {
+            "success": False,
+            "error": "Mainnet engine not available",
+            "note": "Contact support@brick3.fun to enable mainnet MEV"
+        }
+    
+    engine = get_mainnet_engine()
+    return {
+        "success": True,
+        "status": engine.get_status()
+    }
+
+@app.post("/api/v1/mainnet/start", tags=["Mainnet"])
+async def mainnet_start(api_key: str = Depends(validate_api_key)):
+    """Start mainnet MEV engine (requires Enterprise tier)"""
+    # Check tier
+    key_info = API_KEYS.get(api_key, {})
+    if key_info.get("tier") not in ["unlimited", "enterprise"]:
+        raise HTTPException(
+            status_code=403, 
+            detail="Mainnet MEV requires Enterprise tier. Contact partnership@brick3.fun"
+        )
+    
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {"success": False, "error": "Mainnet engine not available"}
+    
+    engine = get_mainnet_engine()
+    
+    # Start in background
+    import asyncio
+    asyncio.create_task(engine.start())
+    
+    return {
+        "success": True,
+        "message": "Mainnet MEV engine starting",
+        "status": engine.get_status()
+    }
+
+@app.post("/api/v1/mainnet/stop", tags=["Mainnet"])
+async def mainnet_stop(api_key: str = Depends(validate_api_key)):
+    """Stop mainnet MEV engine"""
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {"success": False, "error": "Mainnet engine not available"}
+    
+    engine = get_mainnet_engine()
+    await engine.stop()
+    
+    return {
+        "success": True,
+        "message": "Mainnet MEV engine stopped"
+    }
+
+@app.post("/api/v1/mainnet/bot/{bot_type}", tags=["Mainnet"])
+def mainnet_bot_control(
+    bot_type: str,
+    enabled: bool = Query(True, description="Enable or disable bot"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Enable/disable specific bot on mainnet"""
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {"success": False, "error": "Mainnet engine not available"}
+    
+    engine = get_mainnet_engine()
+    return engine.enable_bot(bot_type, enabled)
+
+@app.get("/api/v1/mainnet/opportunities", tags=["Mainnet"])
+def mainnet_opportunities(
+    limit: int = Query(20, ge=1, le=100),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get detected mainnet opportunities"""
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {"success": False, "error": "Mainnet engine not available"}
+    
+    engine = get_mainnet_engine()
+    opportunities = list(engine.pending_opportunities.values())[:limit]
+    
+    return {
+        "success": True,
+        "count": len(opportunities),
+        "opportunities": [
+            {
+                "id": opp.id,
+                "type": opp.type.value,
+                "estimated_profit_usd": opp.estimated_profit_usd,
+                "confidence": opp.confidence,
+                "created_at": opp.created_at
+            }
+            for opp in opportunities
+        ]
+    }
+
+@app.get("/api/v1/mainnet/executions", tags=["Mainnet"])
+def mainnet_executions(
+    limit: int = Query(50, ge=1, le=200),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get mainnet execution history"""
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {"success": False, "error": "Mainnet engine not available"}
+    
+    engine = get_mainnet_engine()
+    executions = engine.execution_results[-limit:]
+    
+    return {
+        "success": True,
+        "count": len(executions),
+        "executions": [
+            {
+                "opportunity_id": ex.opportunity_id,
+                "status": ex.status.value,
+                "bundle_hash": ex.bundle_hash,
+                "tx_hashes": ex.tx_hashes,
+                "actual_profit_wei": ex.actual_profit_wei,
+                "gas_used": ex.gas_used,
+                "error": ex.error,
+                "timestamp": ex.timestamp
+            }
+            for ex in executions
+        ]
+    }
+
+@app.get("/api/v1/mainnet/stats", tags=["Mainnet"])
+def mainnet_stats(api_key: str = Depends(validate_api_key)):
+    """Get mainnet MEV engine statistics"""
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {"success": False, "error": "Mainnet engine not available"}
+    
+    engine = get_mainnet_engine()
+    stats = engine.stats
+    
+    # Calculate profit in USD
+    mon_price = 1.5  # MON/USD
+    total_profit_usd = (stats.get("total_profit_wei", 0) / 10**18) * mon_price
+    
+    return {
+        "success": True,
+        "stats": {
+            "opportunities_detected": stats.get("opportunities_detected", 0),
+            "bundles_submitted": stats.get("bundles_submitted", 0),
+            "bundles_included": stats.get("bundles_included", 0),
+            "total_profit_mon": stats.get("total_profit_wei", 0) / 10**18,
+            "total_profit_usd": total_profit_usd,
+            "start_time": stats.get("start_time"),
+            "mempool_stats": stats.get("mempool_stats", {})
+        }
+    }
+
+@app.post("/api/v1/mainnet/configure", tags=["Mainnet"])
+def mainnet_configure(
+    min_profit_usd: float = Query(10.0, description="Minimum profit threshold"),
+    private_key: str = Query(None, description="Bot wallet private key (optional)"),
+    fastlane_api_key: str = Query(None, description="FastLane API key (optional)"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Configure mainnet MEV engine"""
+    # Check tier
+    key_info = API_KEYS.get(api_key, {})
+    if key_info.get("tier") not in ["unlimited", "enterprise"]:
+        raise HTTPException(
+            status_code=403, 
+            detail="Mainnet configuration requires Enterprise tier"
+        )
+    
+    if not MAINNET_ENGINE_AVAILABLE:
+        return {"success": False, "error": "Mainnet engine not available"}
+    
+    engine = get_mainnet_engine()
+    
+    # Update configuration
+    engine.min_profit_usd = min_profit_usd
+    
+    if private_key:
+        # Re-initialize tx builder with new key
+        engine.tx_builder = engine.TransactionBuilder(private_key, engine.rpc_url)
+    
+    if fastlane_api_key:
+        engine.bundle_submitter.api_key = fastlane_api_key
+    
+    return {
+        "success": True,
+        "config": {
+            "min_profit_usd": engine.min_profit_usd,
+            "wallet_configured": engine.tx_builder.account is not None,
+            "fastlane_configured": bool(engine.bundle_submitter.api_key)
+        }
+    }
 
 # ==================== MAIN ====================
 
