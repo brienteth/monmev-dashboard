@@ -1594,6 +1594,369 @@ def mainnet_configure(
         }
     }
 
+# ==================== MEMPOOL MONITORING ENDPOINTS ====================
+
+# Import new modules
+try:
+    from mempool_monitor import (
+        RPCMempoolMonitor, 
+        get_recent_swaps, 
+        get_sandwichable_txs,
+        get_monitoring_summary
+    )
+    MEMPOOL_MONITOR_AVAILABLE = True
+except ImportError:
+    MEMPOOL_MONITOR_AVAILABLE = False
+
+try:
+    from sandwich_detector import (
+        SandwichDetector,
+        get_sandwich_opportunities,
+        get_sandwich_summary,
+        export_example_sandwiches
+    )
+    SANDWICH_DETECTOR_AVAILABLE = True
+except ImportError:
+    SANDWICH_DETECTOR_AVAILABLE = False
+
+try:
+    from solver_manager import (
+        SolverManager,
+        get_solver_addresses,
+        get_solver_summary,
+        export_solver_info
+    )
+    SOLVER_MANAGER_AVAILABLE = True
+except ImportError:
+    SOLVER_MANAGER_AVAILABLE = False
+
+# Singleton instances
+_mempool_monitor = None
+_sandwich_detector = None
+_solver_manager = None
+
+def get_mempool_monitor():
+    global _mempool_monitor
+    if _mempool_monitor is None and MEMPOOL_MONITOR_AVAILABLE:
+        _mempool_monitor = RPCMempoolMonitor(network="mainnet")
+    return _mempool_monitor
+
+def get_sandwich_detector():
+    global _sandwich_detector
+    if _sandwich_detector is None and SANDWICH_DETECTOR_AVAILABLE:
+        _sandwich_detector = SandwichDetector()
+    return _sandwich_detector
+
+def get_solver_manager():
+    global _solver_manager
+    if _solver_manager is None and SOLVER_MANAGER_AVAILABLE:
+        _solver_manager = SolverManager()
+    return _solver_manager
+
+@app.get("/api/v1/mempool/status", tags=["Mempool"])
+def mempool_status(api_key: str = Depends(validate_api_key)):
+    """Get mempool monitoring status and statistics"""
+    if not MEMPOOL_MONITOR_AVAILABLE:
+        return {"success": False, "error": "Mempool monitor not available"}
+    
+    monitor = get_mempool_monitor()
+    
+    return {
+        "success": True,
+        "status": "active",
+        "monitoring": {
+            "method": "RPC polling + block scanning",
+            "poll_interval_ms": 100,
+            "network": "monad_mainnet",
+            "rpc_url": "https://rpc.monad.xyz"
+        },
+        "stats": monitor.get_stats() if monitor else {},
+        "capabilities": {
+            "pending_tx_detection": True,
+            "swap_decoding": True,
+            "sandwich_detection": True,
+            "websocket_available": False
+        }
+    }
+
+@app.get("/api/v1/mempool/recent-swaps", tags=["Mempool"])
+def mempool_recent_swaps(
+    limit: int = Query(50, ge=1, le=500),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get recent swap transactions from mempool"""
+    if not MEMPOOL_MONITOR_AVAILABLE:
+        return {"success": False, "error": "Mempool monitor not available"}
+    
+    swaps = get_recent_swaps(limit=limit)
+    
+    return {
+        "success": True,
+        "count": len(swaps),
+        "swaps": swaps
+    }
+
+@app.get("/api/v1/mempool/sandwichable", tags=["Mempool"])
+def mempool_sandwichable(
+    limit: int = Query(50, ge=1, le=200),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get potentially sandwichable transactions"""
+    if not MEMPOOL_MONITOR_AVAILABLE:
+        return {"success": False, "error": "Mempool monitor not available"}
+    
+    txs = get_sandwichable_txs(limit=limit)
+    
+    return {
+        "success": True,
+        "count": len(txs),
+        "sandwichable_txs": txs,
+        "note": "Transactions with >0.5% slippage tolerance"
+    }
+
+@app.get("/api/v1/mempool/summary", tags=["Mempool"])
+def mempool_summary(api_key: str = Depends(validate_api_key)):
+    """Get mempool monitoring summary"""
+    if not MEMPOOL_MONITOR_AVAILABLE:
+        return {"success": False, "error": "Mempool monitor not available"}
+    
+    summary = get_monitoring_summary()
+    
+    return {
+        "success": True,
+        "summary": summary
+    }
+
+# ==================== SANDWICH DETECTION ENDPOINTS ====================
+
+@app.get("/api/v1/sandwich/opportunities", tags=["Sandwich"])
+def sandwich_opportunities(
+    limit: int = Query(50, ge=1, le=500),
+    min_profit_usd: float = Query(0.0, ge=0),
+    api_key: str = Depends(validate_api_key)
+):
+    """Get detected sandwich opportunities"""
+    if not SANDWICH_DETECTOR_AVAILABLE:
+        return {"success": False, "error": "Sandwich detector not available"}
+    
+    opportunities = get_sandwich_opportunities(limit=limit, min_profit_usd=min_profit_usd)
+    
+    return {
+        "success": True,
+        "count": len(opportunities),
+        "opportunities": opportunities,
+        "note": "All opportunities are SIMULATED, not executed"
+    }
+
+@app.get("/api/v1/sandwich/summary", tags=["Sandwich"])
+def sandwich_summary(api_key: str = Depends(validate_api_key)):
+    """Get sandwich detection summary"""
+    if not SANDWICH_DETECTOR_AVAILABLE:
+        return {"success": False, "error": "Sandwich detector not available"}
+    
+    summary = get_sandwich_summary()
+    
+    return {
+        "success": True,
+        "summary": summary,
+        "disclaimer": "These are simulated opportunities, not actual executions"
+    }
+
+@app.get("/api/v1/sandwich/examples", tags=["Sandwich"])
+def sandwich_examples(api_key: str = Depends(validate_api_key)):
+    """Get example sandwich simulations for analysis
+    
+    Answers FastLane Question: "Do you have some example transactions of sandwich?"
+    """
+    if not SANDWICH_DETECTOR_AVAILABLE:
+        return {"success": False, "error": "Sandwich detector not available"}
+    
+    # Export examples
+    export_file = export_example_sandwiches()
+    
+    # Read and return
+    try:
+        with open(export_file, 'r') as f:
+            examples = json.load(f)
+        
+        return {
+            "success": True,
+            "examples": examples,
+            "note": "These are SIMULATED sandwich opportunities, not executed transactions",
+            "explanation": {
+                "how_we_detect": "We monitor pending transactions via RPC and analyze swap calldata",
+                "what_we_simulate": "Frontrun + victim + backrun sequence on constant product AMM pools",
+                "why_simulated": "We are seeking official FastLane integration before live execution"
+            }
+        }
+    except:
+        return {
+            "success": False,
+            "error": "Could not load examples"
+        }
+
+# ==================== SOLVER MANAGEMENT ENDPOINTS ====================
+
+@app.get("/api/v1/solver/addresses", tags=["Solver"])
+def solver_addresses(api_key: str = Depends(validate_api_key)):
+    """Get registered solver addresses
+    
+    Answers FastLane Question: "can you share your solver addresses"
+    """
+    if not SOLVER_MANAGER_AVAILABLE:
+        return {"success": False, "error": "Solver manager not available"}
+    
+    addresses = get_solver_addresses()
+    summary = get_solver_summary()
+    
+    return {
+        "success": True,
+        "solver_addresses": addresses,
+        "summary": summary,
+        "atlas_integration": {
+            "atlas_router": "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C",
+            "auctioneer_url": "https://auctioneer-fra.fastlane-labs.xyz",
+            "status": "pending_registration",
+            "note": "We want to register these solvers officially through FastLane partnership"
+        }
+    }
+
+@app.get("/api/v1/solver/info", tags=["Solver"])
+def solver_info(api_key: str = Depends(validate_api_key)):
+    """Get complete solver information for FastLane team"""
+    if not SOLVER_MANAGER_AVAILABLE:
+        return {"success": False, "error": "Solver manager not available"}
+    
+    info = export_solver_info()
+    
+    return {
+        "success": True,
+        "solver_info": info,
+        "message": "We are seeking official FastLane integration to register these solvers with Atlas"
+    }
+
+@app.post("/api/v1/solver/create", tags=["Solver"])
+def solver_create(
+    name: str = Query(..., description="Solver name"),
+    description: str = Query("", description="Solver description"),
+    api_key: str = Depends(validate_api_key)
+):
+    """Create a new solver wallet"""
+    if not SOLVER_MANAGER_AVAILABLE:
+        return {"success": False, "error": "Solver manager not available"}
+    
+    # Check tier
+    key_info = API_KEYS.get(api_key, {})
+    if key_info.get("tier") not in ["unlimited", "enterprise"]:
+        raise HTTPException(
+            status_code=403, 
+            detail="Solver creation requires Enterprise tier"
+        )
+    
+    manager = get_solver_manager()
+    solver = manager.create_solver_wallet(name, description)
+    
+    return {
+        "success": True,
+        "solver": solver.to_dict(),
+        "warning": "Save the private key securely - it was printed to server logs"
+    }
+
+# ==================== FASTLANE TECHNICAL ANSWERS ENDPOINT ====================
+
+@app.get("/api/v1/fastlane/technical-details", tags=["FastLane"])
+def fastlane_technical_details(api_key: str = Depends(validate_api_key)):
+    """
+    Complete technical details for FastLane team
+    
+    Answers all FastLane questions:
+    1. How do you achieve mempool monitoring on monad?
+    2. Do you have some example transactions of sandwich?
+    3. How are your bots using fastlane currently? through atlas? can you share your solver addresses
+    """
+    
+    # Get mempool info
+    mempool_info = {
+        "monitoring_method": "RPC Polling + Block Scanning",
+        "implementation": "mempool_monitor.py",
+        "details": {
+            "primary": "eth_getFilterChanges with 'pending' filter",
+            "fallback": "Block-by-block transaction scanning",
+            "poll_interval": "100ms",
+            "swap_detection": "Method signature matching for V2/V3 swaps",
+            "data_storage": "SQLite for historical analysis"
+        },
+        "capabilities": [
+            "Pending transaction detection",
+            "Swap transaction decoding (V2, V3, aggregators)",
+            "Slippage calculation",
+            "Sandwichable transaction identification"
+        ],
+        "limitations": [
+            "Public RPC doesn't expose full mempool",
+            "Exploring validator connections for better access",
+            "WebSocket support pending on Monad RPC"
+        ]
+    }
+    
+    # Get sandwich examples
+    sandwich_info = {
+        "implementation": "sandwich_detector.py",
+        "status": "SIMULATION_ONLY",
+        "details": {
+            "detection": "Analyze pending swaps for high slippage tolerance",
+            "simulation": "Constant product AMM formula simulation",
+            "profit_calculation": "Frontrun cost + backrun revenue - gas costs",
+            "confidence_scoring": "Based on slippage, price impact, profit margin"
+        },
+        "example_data": "Available via /api/v1/sandwich/examples endpoint",
+        "note": "All examples are SIMULATED, not executed on mainnet"
+    }
+    
+    # Get solver info
+    solver_info = {
+        "implementation": "solver_manager.py",
+        "atlas_integration": {
+            "status": "PENDING_OFFICIAL_INTEGRATION",
+            "atlas_router": "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C",
+            "auctioneer_url": "https://auctioneer-fra.fastlane-labs.xyz"
+        },
+        "current_status": [
+            "Solver wallet creation and management ready",
+            "Bundle building infrastructure ready",
+            "Atlas submission client implemented",
+            "Awaiting official FastLane partnership for registration"
+        ],
+        "solver_addresses": "Available via /api/v1/solver/addresses endpoint"
+    }
+    
+    return {
+        "success": True,
+        "timestamp": datetime.now().isoformat(),
+        "project": "Brick3 MEV Platform",
+        "answers": {
+            "question_1_mempool_monitoring": mempool_info,
+            "question_2_sandwich_examples": sandwich_info,
+            "question_3_atlas_integration": solver_info
+        },
+        "summary": {
+            "infrastructure_status": "READY",
+            "execution_status": "AWAITING_FASTLANE_PARTNERSHIP",
+            "what_we_need": "Official FastLane integration to register solvers and submit bundles",
+            "what_we_offer": [
+                "Complete MEV detection infrastructure",
+                "Sandwich/arbitrage simulation engine",
+                "70% revenue share to shMON holders",
+                "Production-ready API and dashboard"
+            ]
+        },
+        "contact": {
+            "dashboard": "https://brick3.streamlit.app",
+            "api": "https://brick3-api.onrender.com",
+            "github": "https://github.com/brienteth/monmev-dashboard"
+        }
+    }
+
 # ==================== MAIN ====================
 
 if __name__ == "__main__":
