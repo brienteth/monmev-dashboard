@@ -1,0 +1,50 @@
+{
+  "generated_at": "2025-12-31T19:37:18.334392",
+  "atlas_integration": {
+    "atlas_router": "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C",
+    "auctioneer_url": "https://auctioneer-fra.fastlane-labs.xyz",
+    "chain_id": 10143
+  },
+  "solver_wallets": [
+    {
+      "address": "0x64D3607B0E17315019E76C8f98303087Fd59b391",
+      "name": "Brick3-Sandwich-Bot",
+      "description": "Primary sandwich attack solver",
+      "status": "pending",
+      "registered_at": null,
+      "bundles_submitted": 0,
+      "bundles_landed": 0,
+      "total_profit_wei": "0"
+    },
+    {
+      "address": "0x3f7ddef08188A1c50754b5b4E92A37e938c20226",
+      "name": "Brick3-Arb-Bot",
+      "description": "Cross-DEX arbitrage solver",
+      "status": "pending",
+      "registered_at": null,
+      "bundles_submitted": 0,
+      "bundles_landed": 0,
+      "total_profit_wei": "0"
+    },
+    {
+      "address": "0x48ed7310B00116b08567a59B1cbc072C8e810E3D",
+      "name": "Brick3-Liquidation-Bot",
+      "description": "Lending protocol liquidation solver",
+      "status": "pending",
+      "registered_at": null,
+      "bundles_submitted": 0,
+      "bundles_landed": 0,
+      "total_profit_wei": "0"
+    }
+  ],
+  "summary": {
+    "total_solvers": 3,
+    "registered_solvers": 0,
+    "total_bundles_submitted": 0,
+    "total_bundles_landed": 0,
+    "total_profit_wei": 0,
+    "total_profit_mon": 0.0,
+    "atlas_router": "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C"
+  },
+  "note": "We are seeking official FastLane integration to register these solvers with Atlas"
+}

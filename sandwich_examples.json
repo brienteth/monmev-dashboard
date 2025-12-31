@@ -1,0 +1,13 @@
+{
+  "generated_at": "2025-12-31T19:37:17.612609",
+  "disclaimer": "These are SIMULATED examples, not executed transactions",
+  "summary": {
+    "total_opportunities": 0,
+    "profitable_opportunities": 0,
+    "total_potential_profit_usd": 0,
+    "average_roi_percent": 0,
+    "total_simulations": 0,
+    "profitability_rate": 0.0
+  },
+  "examples": []
+}

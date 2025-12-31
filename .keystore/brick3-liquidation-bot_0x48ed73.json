@@ -1,0 +1,7 @@
+{
+  "address": "0x48ed7310B00116b08567a59B1cbc072C8e810E3D",
+  "name": "Brick3-Liquidation-Bot",
+  "private_key_encrypted": "[ENCRYPTED:81c21a25e4de2202]",
+  "created_at": "2025-12-31T19:37:18.314617",
+  "warning": "In production, use proper encryption!"
+}
