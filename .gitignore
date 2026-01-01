@@ -15,7 +15,6 @@ api.log
 # These are for developers, not on GitHub
 brick3/docs/*.md
 brick3/examples/*.py
-BRICK3_*.md
 BRICK3_*.yaml
 
 # Build artifacts
