@@ -73,15 +73,27 @@ class TurboConfig:
 class FlashConfig:
     """Configuration for Flash™ gateway (4x speed, 10% MEV savings)"""
     CHAIN_ID = 143
+    NETWORK_NAME = "Monad"
+    RPC_ENDPOINT = "https://rpc.monad.xyz"
     MEMPOOL_POLL_INTERVAL_MS = 250
     MEV_SAVINGS_PERCENT = 10
     GAS_SAVINGS_PERCENT = 50
     SPEED_MULTIPLIER = 4
+    FASTLANE_ENABLED = True
+    USE_HTTP3_QUIC = True
+    ATLAS_ROUTER = "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C"
+    OPERATIONS_RELAY = "wss://relay-fra.fastlane-labs.xyz/ws/solver"
 
 class FlowConfig:
     """Configuration for Flow™ gateway (2x speed, 5% MEV savings)"""
     CHAIN_ID = 143
+    NETWORK_NAME = "Monad"
+    RPC_ENDPOINT = "https://rpc.monad.xyz"
     MEMPOOL_POLL_INTERVAL_MS = 500
     MEV_SAVINGS_PERCENT = 5
     GAS_SAVINGS_PERCENT = 20
     SPEED_MULTIPLIER = 2
+    FASTLANE_ENABLED = True
+    USE_HTTP3_QUIC = True
+    ATLAS_ROUTER = "0xbB010Cb7e71D44d7323aE1C267B333A48D05907C"
+    OPERATIONS_RELAY = "wss://relay-fra.fastlane-labs.xyz/ws/solver"

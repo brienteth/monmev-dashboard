@@ -6,3 +6,16 @@ __pycache__/
 api.log
 /tmp/
 *.log
+
+# Hide documentation from GitHub (keep in repo but don't display)
+# These are for developers, not on GitHub
+brick3/docs/*.md
+brick3/examples/*.py
+BRICK3_*.md
+BRICK3_*.yaml
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
