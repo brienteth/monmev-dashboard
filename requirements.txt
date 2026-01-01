@@ -3,12 +3,14 @@
 
 # Web Frameworks
 streamlit>=1.29.0
+streamlit-web3>=0.4.0
 fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
 
 # Web3 & Blockchain
 web3>=6.11.3
 eth-account>=0.10.0
+eth-keys>=0.4.0
 
 # API & HTTP
 requests>=2.31.0
