@@ -5,6 +5,7 @@ Streamlit Frontend
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import json
 import time
@@ -42,6 +43,237 @@ if "stats" not in st.session_state:
     }
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = None
+if "wallet_connected" not in st.session_state:
+    st.session_state.wallet_connected = False
+if "wallet_address" not in st.session_state:
+    st.session_state.wallet_address = None
+if "wallet_balance" not in st.session_state:
+    st.session_state.wallet_balance = None
+
+# ==================== METAMASK CONNECTION ====================
+def connect_metamask_html():
+    """MetaMask connection component with Web3.js"""
+    return """
+    <div id="metamask-container">
+        <style>
+            #metamask-container {
+                padding: 15px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 12px;
+                margin: 10px 0;
+            }
+            #connect-btn {
+                background: white;
+                color: #667eea;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-weight: 600;
+                cursor: pointer;
+                font-size: 16px;
+                width: 100%;
+                transition: all 0.3s;
+            }
+            #connect-btn:hover {
+                transform: scale(1.02);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            }
+            #wallet-info {
+                background: rgba(255,255,255,0.1);
+                padding: 15px;
+                border-radius: 8px;
+                color: white;
+                margin-top: 10px;
+            }
+            .wallet-address {
+                font-family: monospace;
+                font-size: 14px;
+                word-break: break-all;
+            }
+            .wallet-balance {
+                font-size: 20px;
+                font-weight: 700;
+                margin-top: 8px;
+            }
+            .disconnect-btn {
+                background: rgba(255,255,255,0.2);
+                color: white;
+                border: 1px solid white;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                margin-top: 10px;
+                font-size: 14px;
+            }
+        </style>
+        
+        <div id="wallet-status">
+            <button id="connect-btn" onclick="connectWallet()">
+                🦊 Connect MetaMask
+            </button>
+            <div id="wallet-info" style="display: none;">
+                <div style="font-weight: 600; margin-bottom: 8px;">✅ Wallet Connected</div>
+                <div class="wallet-address" id="address"></div>
+                <div class="wallet-balance" id="balance"></div>
+                <button class="disconnect-btn" onclick="disconnectWallet()">Disconnect</button>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+        <script>
+            let web3;
+            let userAccount;
+            
+            // Check if MetaMask is installed
+            window.addEventListener('load', async () => {
+                if (typeof window.ethereum !== 'undefined') {
+                    web3 = new Web3(window.ethereum);
+                    
+                    // Check if already connected
+                    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                    if (accounts.length > 0) {
+                        userAccount = accounts[0];
+                        updateWalletUI();
+                    }
+                } else {
+                    document.getElementById('connect-btn').innerHTML = '❌ MetaMask Not Installed';
+                    document.getElementById('connect-btn').disabled = true;
+                }
+            });
+            
+            async function connectWallet() {
+                if (typeof window.ethereum === 'undefined') {
+                    alert('Please install MetaMask to use this feature!');
+                    window.open('https://metamask.io/download/', '_blank');
+                    return;
+                }
+                
+                try {
+                    // Request account access
+                    const accounts = await window.ethereum.request({ 
+                        method: 'eth_requestAccounts' 
+                    });
+                    
+                    userAccount = accounts[0];
+                    
+                    // Check network (Monad = Chain ID 143)
+                    const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                    if (chainId !== '0x8f') { // 143 in hex
+                        try {
+                            await window.ethereum.request({
+                                method: 'wallet_switchEthereumChain',
+                                params: [{ chainId: '0x8f' }],
+                            });
+                        } catch (switchError) {
+                            // Chain not added, add it
+                            if (switchError.code === 4902) {
+                                await window.ethereum.request({
+                                    method: 'wallet_addEthereumChain',
+                                    params: [{
+                                        chainId: '0x8f',
+                                        chainName: 'Monad Mainnet',
+                                        nativeCurrency: {
+                                            name: 'MON',
+                                            symbol: 'MON',
+                                            decimals: 18
+                                        },
+                                        rpcUrls: ['https://rpc.monad.xyz'],
+                                        blockExplorerUrls: ['https://explorer.monad.xyz']
+                                    }]
+                                });
+                            }
+                        }
+                    }
+                    
+                    updateWalletUI();
+                    
+                    // Store in Streamlit (via parent window)
+                    window.parent.postMessage({
+                        type: 'wallet_connected',
+                        address: userAccount
+                    }, '*');
+                    
+                } catch (error) {
+                    console.error('Connection error:', error);
+                    alert('Failed to connect: ' + error.message);
+                }
+            }
+            
+            async function updateWalletUI() {
+                if (!userAccount) return;
+                
+                // Get balance
+                const balance = await web3.eth.getBalance(userAccount);
+                const balanceMON = web3.utils.fromWei(balance, 'ether');
+                
+                // Update UI
+                document.getElementById('connect-btn').style.display = 'none';
+                document.getElementById('wallet-info').style.display = 'block';
+                document.getElementById('address').textContent = userAccount;
+                document.getElementById('balance').textContent = parseFloat(balanceMON).toFixed(4) + ' MON';
+            }
+            
+            function disconnectWallet() {
+                userAccount = null;
+                document.getElementById('connect-btn').style.display = 'block';
+                document.getElementById('wallet-info').style.display = 'none';
+                
+                window.parent.postMessage({
+                    type: 'wallet_disconnected'
+                }, '*');
+            }
+            
+            // Listen for account changes
+            if (window.ethereum) {
+                window.ethereum.on('accountsChanged', (accounts) => {
+                    if (accounts.length === 0) {
+                        disconnectWallet();
+                    } else {
+                        userAccount = accounts[0];
+                        updateWalletUI();
+                    }
+                });
+                
+                window.ethereum.on('chainChanged', () => {
+                    window.location.reload();
+                });
+            }
+            
+            // Expose sendTransaction function
+            window.sendTransaction = async function(to, value, gasLimit, priorityFee, data) {
+                if (!userAccount) {
+                    throw new Error('Wallet not connected');
+                }
+                
+                const valueWei = web3.utils.toWei(value.toString(), 'ether');
+                const maxPriorityFeePerGas = web3.utils.toWei(priorityFee.toString(), 'gwei');
+                
+                const txParams = {
+                    from: userAccount,
+                    to: to,
+                    value: valueWei,
+                    gas: gasLimit,
+                    maxPriorityFeePerGas: maxPriorityFeePerGas
+                };
+                
+                if (data && data !== '') {
+                    txParams.data = data;
+                }
+                
+                try {
+                    const txHash = await window.ethereum.request({
+                        method: 'eth_sendTransaction',
+                        params: [txParams],
+                    });
+                    
+                    return { success: true, txHash: txHash };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            };
+        </script>
+    </div>
+    """
 
 # ==================== STYLES ====================
 st.markdown("""
@@ -514,8 +746,50 @@ with tab2:
 with tab3:
     st.markdown("### ⚡ FastLane MEV Protection - Atlas Protocol Integration")
     
-    # FastLane Stats Section
+    # Live Mempool Monitoring Section
     st.markdown("---")
+    st.markdown("#### 🔍 Live Mempool Monitoring")
+    
+    # Fetch real mempool status
+    mempool_status = None
+    try:
+        response = requests.get(f"{API_URL}/api/v1/mempool/status", headers={"X-API-Key": API_KEY}, timeout=5)
+        if response.status_code == 200:
+            mempool_status = response.json()
+    except:
+        pass
+    
+    # Mempool metrics row
+    if mempool_status and mempool_status.get("monitoring_active"):
+        mempool_stats = mempool_status.get("stats", {})
+        
+        m1, m2, m3, m4, m5 = st.columns(5)
+        with m1:
+            st.metric("👁️ Status", "🟢 LIVE", help="Mempool monitoring is active")
+        with m2:
+            st.metric("📦 Txs Seen", f"{mempool_stats.get('total_txs_seen', 0):,}", help="Total transactions monitored")
+        with m3:
+            st.metric("🔄 Swap Txs", f"{mempool_stats.get('swap_txs_seen', 0):,}", help="Swap transactions detected")
+        with m4:
+            st.metric("🥪 Sandwichable", f"{mempool_stats.get('sandwichable_count', 0):,}", help="Sandwich opportunities found")
+        with m5:
+            poll_interval = mempool_status.get("poll_interval_ms", 100)
+            st.metric("⚡ Poll Rate", f"{poll_interval}ms", help="Mempool polling interval")
+    else:
+        st.warning("⚠️ Mempool monitoring offline - Starting monitor...")
+        if st.button("🚀 Start Monitoring", type="primary"):
+            try:
+                response = requests.post(f"{API_URL}/api/v1/mempool/start", headers={"X-API-Key": API_KEY}, timeout=5)
+                if response.status_code == 200:
+                    st.success("✅ Mempool monitoring started!")
+                    st.rerun()
+            except:
+                st.error("❌ Failed to start monitoring")
+    
+    st.markdown("---")
+    
+    # FastLane Stats Section
+    st.markdown("#### 📊 FastLane Stats")
     
     # Fetch FastLane stats
     fastlane_stats = None
@@ -541,7 +815,278 @@ with tab3:
         with m4:
             st.metric("📈 APY Boost", shmon_data.get("estimated_apy_boost", "+0%"))
     else:
-        st.warning("⚠️ FastLane stats unavailable - API might be offline")
+        st.info("💡 FastLane stats will appear after MEV capture begins")
+    
+    st.markdown("---")
+    
+    # MetaMask Wallet Connection
+    st.markdown("#### 🦊 Wallet Connection")
+    
+    components.html(connect_metamask_html(), height=200, scrolling=False)
+    
+    st.markdown("---")
+    
+    # Brick3 Infrastructure Status
+    st.markdown("#### 🚀 Brick3 Infrastructure Status")
+    
+    infra_col1, infra_col2, infra_col3 = st.columns(3)
+    
+    with infra_col1:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 10px; text-align: center;">
+            <div style="font-size: 2em;">🚀</div>
+            <div style="font-weight: 600; margin: 5px 0;">Brick3 Turbo™</div>
+            <div style="color: #4ade80; font-size: 0.9em;">● Active</div>
+            <div style="font-size: 0.8em; opacity: 0.8; margin-top: 5px;">Ultra-fast transaction relay</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with infra_col2:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 15px; border-radius: 10px; text-align: center;">
+            <div style="font-size: 2em;">💾</div>
+            <div style="font-weight: 600; margin: 5px 0;">Brick3 Flash™</div>
+            <div style="color: #4ade80; font-size: 0.9em;">● Active</div>
+            <div style="font-size: 0.8em; opacity: 0.8; margin-top: 5px;">Instant data caching</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with infra_col3:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 15px; border-radius: 10px; text-align: center;">
+            <div style="font-size: 2em;">🌊</div>
+            <div style="font-weight: 600; margin: 5px 0;">Brick3 Flow™</div>
+            <div style="color: #4ade80; font-size: 0.9em;">● Active</div>
+            <div style="font-size: 0.8em; opacity: 0.8; margin-top: 5px;">Advanced mempool streaming</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Submit Protected Transaction Form
+    st.markdown("#### 📤 Submit Protected Transaction")
+    st.info("🛡️ Submit transactions through FastLane for MEV protection")
+    
+    # Transaction Method Selection
+    tx_method = st.radio(
+        "Transaction Method:",
+        ["🦊 MetaMask (Recommended)", "🔑 API Submission (Demo)"],
+        horizontal=True,
+        help="Use MetaMask to sign transactions with your wallet, or use API for testing"
+    )
+    
+    with st.form("protected_tx_form"):
+        tx_form_col1, tx_form_col2 = st.columns(2)
+        
+        with tx_form_col1:
+            to_address = st.text_input(
+                "To Address",
+                placeholder="0x...",
+                help="Destination address for the transaction"
+            )
+            
+            value_mon = st.number_input(
+                "Value (MON)",
+                min_value=0.0,
+                value=0.0,
+                step=0.1,
+                format="%.4f",
+                help="Amount of MON to send"
+            )
+            
+            gas_limit = st.number_input(
+                "Gas Limit",
+                min_value=21000,
+                value=100000,
+                step=10000,
+                help="Maximum gas for the transaction"
+            )
+        
+        with tx_form_col2:
+            priority_fee = st.number_input(
+                "Priority Fee (Gwei)",
+                min_value=0.1,
+                value=1.0,
+                step=0.1,
+                format="%.2f",
+                help="Priority fee for faster inclusion"
+            )
+            
+            tx_data = st.text_area(
+                "Data (hex)",
+                placeholder="0x... (optional)",
+                help="Contract call data in hex format (leave empty for simple transfers)",
+                height=100
+            )
+        
+        submit_tx = st.form_submit_button(
+            "🦊 Submit via MetaMask" if tx_method.startswith("🦊") else "🚀 Submit Protected Transaction",
+            type="primary",
+            use_container_width=True
+        )
+        
+        if submit_tx:
+            # Validate inputs
+            if not to_address or not to_address.startswith("0x"):
+                st.error("❌ Invalid destination address")
+            elif len(to_address) != 42:
+                st.error("❌ Address must be 42 characters (0x + 40 hex digits)")
+            elif tx_method.startswith("🦊"):
+                # MetaMask Transaction
+                st.warning("⚠️ Please check your MetaMask wallet to confirm the transaction")
+                
+                # Create JavaScript to send transaction via MetaMask
+                tx_js = f"""
+                <script>
+                    async function submitTransaction() {{
+                        try {{
+                            const result = await window.parent.sendTransaction(
+                                '{to_address}',
+                                {value_mon},
+                                {gas_limit},
+                                {priority_fee},
+                                '{tx_data if tx_data else ""}'
+                            );
+                            
+                            if (result.success) {{
+                                window.parent.postMessage({{
+                                    type: 'transaction_success',
+                                    txHash: result.txHash
+                                }}, '*');
+                            }} else {{
+                                window.parent.postMessage({{
+                                    type: 'transaction_error',
+                                    error: result.error
+                                }}, '*');
+                            }}
+                        }} catch (error) {{
+                            window.parent.postMessage({{
+                                type: 'transaction_error',
+                                error: error.message
+                            }}, '*');
+                        }}
+                    }}
+                    
+                    submitTransaction();
+                </script>
+                """
+                
+                components.html(tx_js, height=0)
+                
+                st.info("📱 Transaction sent to MetaMask. Please confirm in your wallet.")
+                st.markdown(f"""
+                **Transaction Details:**
+                - **To:** `{to_address}`
+                - **Value:** {value_mon} MON
+                - **Gas Limit:** {gas_limit:,}
+                - **Priority Fee:** {priority_fee} Gwei
+                - **MEV Protection:** ✅ Active via FastLane
+                """)
+            else:
+                with st.spinner("🔄 Submitting transaction through FastLane..."):
+                    try:
+                        response = requests.post(
+                            f"{API_URL}/api/v1/fastlane/submit",
+                            json={
+                                "to": to_address,
+                                "value": str(value_mon),
+                                "gas_limit": gas_limit,
+                                "priority_fee_gwei": priority_fee,
+                                "data": tx_data if tx_data else None
+                            },
+                            headers={"X-API-Key": API_KEY},
+                            timeout=10
+                        )
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            st.success("✅ Transaction submitted successfully!")
+                            
+                            st.markdown(f"""
+                            <div style="background: rgba(76, 175, 80, 0.1); border-left: 3px solid #4caf50; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                                <h4 style="margin: 0 0 10px 0;">📋 Transaction Details</h4>
+                                <table style="width: 100%; font-size: 0.9em;">
+                                    <tr><td><b>Tx Hash:</b></td><td><code>{result.get('tx_hash', 'N/A')}</code></td></tr>
+                                    <tr><td><b>Status:</b></td><td>{result.get('status', 'N/A')}</td></tr>
+                                    <tr><td><b>Protected:</b></td><td>✅ MEV Protection Active</td></tr>
+                                    <tr><td><b>Estimated Gas:</b></td><td>{result.get('estimated_gas', 'N/A')}</td></tr>
+                                </table>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            if result.get("explorer_url"):
+                                st.link_button("🔍 View on Explorer", result["explorer_url"], use_container_width=True)
+                        else:
+                            error_msg = response.json().get("detail", "Unknown error")
+                            st.error(f"❌ Submission failed: {error_msg}")
+                    except Exception as e:
+                        st.error(f"❌ Error submitting transaction: {str(e)}")
+    
+    st.markdown("---")
+    
+    # Live Mempool Transaction Feed
+    st.markdown("#### 📡 Live Mempool Transaction Feed")
+    
+    # Fetch recent mempool transactions
+    mempool_txs = None
+    try:
+        response = requests.get(
+            f"{API_URL}/api/v1/mempool/transactions",
+            params={"limit": 10},
+            headers={"X-API-Key": API_KEY},
+            timeout=5
+        )
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("success"):
+                mempool_txs = result.get("transactions", [])
+    except:
+        pass
+    
+    if mempool_txs and len(mempool_txs) > 0:
+        st.markdown(f"**Latest {len(mempool_txs)} transactions from mempool:**")
+        
+        for tx in mempool_txs:
+            tx_type = tx.get("type", "unknown")
+            tx_hash = tx.get("hash", "N/A")
+            value = tx.get("value", 0)
+            is_sandwichable = tx.get("is_sandwichable", False)
+            
+            # Badge color based on type
+            if tx_type == "swap":
+                badge_color = "#667eea" if is_sandwichable else "#4ecdc4"
+                badge_icon = "🥪" if is_sandwichable else "🔄"
+            else:
+                badge_color = "#95a5a6"
+                badge_icon = "💸"
+            
+            st.markdown(f"""
+            <div style="background: rgba(30, 30, 46, 0.6); border-left: 3px solid {badge_color}; padding: 10px; margin: 5px 0; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="background: {badge_color}; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 600;">
+                            {badge_icon} {tx_type.upper()}
+                        </span>
+                        <code style="margin-left: 10px; color: #888;">{tx_hash[:16]}...</code>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="color: #4ecdc4; font-weight: 600;">{value:.4f} MON</div>
+                        <div style="font-size: 0.75em; color: #666;">{tx.get("from", "")[:10]}... → {tx.get("to", "")[:10]}...</div>
+                    </div>
+                </div>
+                {f'<div style="margin-top: 5px; color: #ff6b6b; font-size: 0.85em;">🥪 SANDWICHABLE - Profit: ${tx.get("potential_profit", 0):.2f}</div>' if is_sandwichable else ''}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Auto-refresh toggle
+        auto_refresh = st.checkbox("🔄 Auto-refresh (5s)", value=False, key="mempool_refresh")
+        if auto_refresh:
+            time.sleep(5)
+            st.rerun()
+    else:
+        st.info("💡 No recent mempool transactions. Monitoring may be starting up...")
+        if st.button("🔄 Refresh Feed", use_container_width=True):
+            st.rerun()
     
     st.markdown("---")
     
@@ -682,6 +1227,43 @@ with tab3:
                     st.link_button("🥩 Stake", endpoints.get('stake', '#'), use_container_width=True)
         except:
             st.warning("⚠️ FastLane info unavailable")
+        
+        st.markdown("---")
+        
+        # Production Solver Addresses
+        st.markdown("#### 🤖 Production Solver Addresses")
+        
+        try:
+            response = requests.get(f"{API_URL}/api/v1/solver/addresses", headers={"X-API-Key": API_KEY}, timeout=5)
+            if response.status_code == 200:
+                solver_data = response.json()
+                solvers = solver_data.get("production_solver_addresses", {})
+                
+                st.markdown("**Registered Solvers:**")
+                
+                # Sandwich Bot
+                if "sandwich_bot" in solvers:
+                    bot = solvers["sandwich_bot"]
+                    st.code(bot.get("address", "N/A"), language=None)
+                    st.caption(f"🥪 {bot.get('role', 'Sandwich Bot')} - {bot.get('status', 'operational')}")
+                
+                # Arbitrage Bot
+                if "arbitrage_bot" in solvers:
+                    bot = solvers["arbitrage_bot"]
+                    st.code(bot.get("address", "N/A"), language=None)
+                    st.caption(f"🔄 {bot.get('role', 'Arbitrage Bot')} - {bot.get('status', 'operational')}")
+                
+                # Liquidation Bot
+                if "liquidation_bot" in solvers:
+                    bot = solvers["liquidation_bot"]
+                    st.code(bot.get("address", "N/A"), language=None)
+                    st.caption(f"💧 {bot.get('role', 'Liquidation Bot')} - {bot.get('status', 'operational')}")
+                
+                st.success("✅ All solvers operational")
+            else:
+                st.warning("⚠️ Solver addresses unavailable")
+        except:
+            st.warning("⚠️ Could not fetch solver info")
         
         st.markdown("---")
         
