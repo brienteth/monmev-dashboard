@@ -7,6 +7,10 @@ api.log
 /tmp/
 *.log
 
+# PyPI credentials (NEVER commit these)
+.pypi_recovery_codes
+.pypirc
+
 # Hide documentation from GitHub (keep in repo but don't display)
 # These are for developers, not on GitHub
 brick3/docs/*.md
