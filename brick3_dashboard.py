@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-🧱 BRICK3 MEV DASHBOARD
-========================
+🧱 BRICK3 MEV DASHBOARD v2
+===========================
 Production-ready dashboard for MEV bot management on Monad.
 Features:
+- Private Key Wallet Connection (Full Transaction Signing)
 - MetaMask Integration via Manual Input (Streamlit Cloud Compatible)
 - Real-time MEV monitoring
 - One-click bot launch
@@ -187,8 +188,17 @@ with st.sidebar:
         st.warning("⚠️ Bağlı Değil")
 
 # ==================== MAIN CONTENT ====================
-st.title("🧱 Brick3 MEV Dashboard")
-st.markdown("Ultra-fast MEV infrastructure for Virtuals Agents")
+col1, col2, col3 = st.columns([2, 1, 1])
+with col1:
+    st.title("🧱 Brick3 MEV Dashboard v2.0")
+with col2:
+    st.caption("✨ Private Key Edition")
+with col3:
+    if st.button("🔄 Cache Clear"):
+        st.cache_data.clear()
+        st.rerun()
+
+st.markdown("Ultra-fast MEV infrastructure for Virtuals Agents | Private Key Wallet Support Added")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Bot", "⚙️ Settings"])
