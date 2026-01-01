@@ -20,6 +20,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from web3 import Web3
+from eth_account import Account
 
 # ==================== CONFIG ====================
 st.set_page_config(
@@ -87,6 +89,22 @@ if 'total_profit' not in st.session_state:
     st.session_state.total_profit = 0.0
 if 'wallet_address' not in st.session_state:
     st.session_state.wallet_address = DEFAULT_WALLET
+if 'private_key' not in st.session_state:
+    st.session_state.private_key = None
+if 'account' not in st.session_state:
+    st.session_state.account = None
+if 'connection_method' not in st.session_state:
+    st.session_state.connection_method = "address"  # 'address' or 'privatekey'
+
+def load_account_from_privatekey(pk):
+    """Load Web3 account from private key"""
+    try:
+        if not pk.startswith("0x"):
+            pk = "0x" + pk
+        account = Account.from_key(pk)
+        return account, account.address
+    except:
+        return None, None
 
 # ==================== SIDEBAR ====================
 with st.sidebar:
@@ -94,39 +112,79 @@ with st.sidebar:
     
     # Wallet Connection
     st.markdown("---")
-    st.subheader("🦊 Wallet")
+    st.subheader("🔐 Wallet Bağlantısı")
     
-    # Manual Wallet Address Input
-    new_wallet = st.text_input(
-        "MetaMask Address", 
-        value=st.session_state.wallet_address,
-        placeholder="0x...",
-        key="wallet_input"
+    # Connection Method Selection
+    connection_method = st.radio(
+        "Bağlantı Yöntemi:",
+        ["📍 Adres Gir", "🔑 Private Key"],
+        key="conn_method"
     )
     
-    if new_wallet and new_wallet != st.session_state.wallet_address:
-        if new_wallet.startswith("0x") and len(new_wallet) == 42:
-            try:
-                int(new_wallet, 16)
-                st.session_state.wallet_address = new_wallet
-                st.success(f"✅ {new_wallet[:6]}...{new_wallet[-4:]}")
-            except:
-                st.error("❌ Invalid hex format")
+    if connection_method == "📍 Adres Gir":
+        st.session_state.connection_method = "address"
+        new_wallet = st.text_input(
+            "Wallet Adresiniz", 
+            value=st.session_state.wallet_address,
+            placeholder="0x...",
+            key="wallet_input"
+        )
+        
+        if new_wallet and new_wallet != st.session_state.wallet_address:
+            if new_wallet.startswith("0x") and len(new_wallet) == 42:
+                try:
+                    int(new_wallet, 16)
+                    st.session_state.wallet_address = new_wallet
+                    st.session_state.private_key = None
+                    st.session_state.account = None
+                    st.success(f"✅ {new_wallet[:6]}...{new_wallet[-4:]}")
+                except:
+                    st.error("❌ Geçersiz hex formatı")
+            else:
+                st.error("❌ Geçersiz adres (42 karakter, 0x önceki)")
         else:
-            st.error("❌ Invalid address (42 chars, 0x prefix)")
-    else:
-        st.write(f"📍 `{st.session_state.wallet_address[:6]}...{st.session_state.wallet_address[-4:]}`")
+            st.write(f"📍 `{st.session_state.wallet_address[:6]}...{st.session_state.wallet_address[-4:]}`")
+    
+    else:  # Private Key method
+        st.session_state.connection_method = "privatekey"
+        pk_input = st.text_input(
+            "Private Key",
+            value="",
+            type="password",
+            placeholder="0x... veya ...",
+            key="pk_input"
+        )
+        
+        if pk_input:
+            account, address = load_account_from_privatekey(pk_input)
+            if account and address:
+                st.session_state.account = account
+                st.session_state.private_key = pk_input
+                st.session_state.wallet_address = address
+                st.success(f"✅ Bağlandı: {address[:6]}...{address[-4:]}")
+                st.info("🔒 Private key yalnızca işlemleri imzalamak için kullanılır")
+            else:
+                st.error("❌ Geçersiz private key")
     
     st.markdown("---")
     
     # Network Status
-    st.subheader("🌐 Status")
+    st.subheader("🌐 Durum")
     block = get_block_number()
     st.metric("Block", f"{block:,}" if block else "N/A")
     st.metric("Chain", "Monad (143)")
     
     st.markdown("---")
-    st.caption("ℹ️ Paste your MetaMask address above to connect")
+    
+    # Account Info
+    if st.session_state.account:
+        st.success("✅ Private Key Yüklü")
+        st.caption(f"📍 {st.session_state.wallet_address[:10]}...{st.session_state.wallet_address[-8:]}")
+    elif st.session_state.wallet_address != DEFAULT_WALLET:
+        st.info("📍 Adres Bağlı (Salt Okuma)")
+        st.caption(f"📍 {st.session_state.wallet_address[:10]}...{st.session_state.wallet_address[-8:]}")
+    else:
+        st.warning("⚠️ Bağlı Değil")
 
 # ==================== MAIN CONTENT ====================
 st.title("🧱 Brick3 MEV Dashboard")
@@ -160,31 +218,34 @@ with tab1:
     col4.metric("Total Trades", "95", "+5")
 
 with tab2:
-    st.subheader("🤖 Bot Control")
+    st.subheader("🤖 Bot Kontrol")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if not st.session_state.bot_running:
-            if st.button("▶️ Start Bot", use_container_width=True):
-                st.session_state.bot_running = True
-                st.success("✅ Bot started!")
-                st.rerun()
-        else:
-            if st.button("⏹️ Stop Bot", use_container_width=True):
-                st.session_state.bot_running = False
-                st.rerun()
-    
-    with col2:
-        if st.button("🔄 Reload", use_container_width=True):
-            st.info("🔄 Reloading...")
-    
-    st.markdown(f"**Status:** {'🟢 RUNNING' if st.session_state.bot_running else '🔴 STOPPED'}")
+    if st.session_state.account:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if not st.session_state.bot_running:
+                if st.button("▶️ Bot Başlat", use_container_width=True):
+                    st.session_state.bot_running = True
+                    st.success("✅ Bot başlatıldı!")
+                    st.rerun()
+            else:
+                if st.button("⏹️ Bot Durdur", use_container_width=True):
+                    st.session_state.bot_running = False
+                    st.rerun()
+        
+        with col2:
+            if st.button("🔄 Yenile", use_container_width=True):
+                st.info("🔄 Yenileniyor...")
+        
+        st.markdown(f"**Durum:** {'🟢 ÇALIŞIYOR' if st.session_state.bot_running else '🔴 DURDURULDU'}")
+    else:
+        st.warning("⚠️ Bot çalıştırmak için Private Key bağlantısı gerekli")
     
     st.markdown("---")
     st.subheader("⚡ Gateway")
     gateway = st.radio(
-        "Select:",
+        "Seçin:",
         ["🔥 TURBO (6x, 15% MEV)", "⚡ FLASH (4x, 10% MEV)", "💧 FLOW (2x, 5% MEV)"]
     )
 
